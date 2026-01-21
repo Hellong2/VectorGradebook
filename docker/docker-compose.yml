@@ -1,0 +1,12 @@
+version: '3.8'
+name: vector-gradebook-qdrant
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: vector-gradebook-qdrant
+    ports:
+      - "6333:6333" # HTTP UI
+      - "6334:6334" # gRPC dla Javy
+    volumes:
+      - ./qdrant_data:/qdrant/storage # Trwałość danych
+    restart: always
