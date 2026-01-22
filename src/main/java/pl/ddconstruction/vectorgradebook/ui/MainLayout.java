@@ -1,4 +1,4 @@
-package pl.ddconstruction.VectorGradebook.ui;
+package pl.ddconstruction.vectorgradebook.ui;
 
 import com.vaadin.flow.component.applayout.AppLayout;
 import com.vaadin.flow.component.applayout.DrawerToggle;
@@ -16,7 +16,7 @@ public class MainLayout extends AppLayout {
     }
 
     private void createHeader() {
-        H1 logo = new H1("Result-Vector Gradebook");
+        H1 logo = new H1("Dziennik Ocen Wektorowych");
         logo.addClassNames("text-l", "m-m");
 
         HorizontalLayout header = new HorizontalLayout(new DrawerToggle(), logo);
@@ -28,8 +28,8 @@ public class MainLayout extends AppLayout {
     }
 
     private void createDrawer() {
-        RouterLink listLink = new RouterLink("Gradebook", GradeBookView.class);
-        RouterLink teamsLink = new RouterLink("Team Generator", TeamGeneratorView.class);
+        RouterLink listLink = new RouterLink("Dziennik Ocen", GradeBookView.class);
+        RouterLink teamsLink = new RouterLink("Generator Zespołów", TeamGeneratorView.class);
 
         addToDrawer(new VerticalLayout(listLink, teamsLink));
     }

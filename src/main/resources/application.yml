@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: VectorGradebook
+
+ai:
+  vectorstore:
+    qdrant:
+      host: localhost
+      port: 6334
+      initialize-schema: false
+
+server:
+  port: 8081
+
+vaadin:
+  whitelisted-packages: pl.ddconstruction.VectorGradebook.model

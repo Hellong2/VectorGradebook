@@ -1,15 +1,13 @@
-package pl.ddconstruction.VectorGradebook.service;
+package pl.ddconstruction.vectorgradebook.service;
 
 import io.qdrant.client.grpc.Points;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import pl.ddconstruction.VectorGradebook.model.Student;
+import pl.ddconstruction.vectorgradebook.model.Student;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+
 import java.util.concurrent.ExecutionException;
 
 @Service
@@ -17,17 +15,19 @@ import java.util.concurrent.ExecutionException;
 public class StudentService {
 
     private final VectorProcessingService vectorService;
-    private final Map<UUID, Student> studentMap = new ConcurrentHashMap<>();
 
     public List<Student> findAll() {
-        return new ArrayList<>(studentMap.values());
+        try {
+            return vectorService.getAllStudents();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch students", e);
+        }
     }
 
     public void save(Student student) {
         if (student.getId() == null) {
             student.setId(UUID.randomUUID());
         }
-        studentMap.put(student.getId(), student);
         try {
             vectorService.upsertStudent(student);
         } catch (ExecutionException | InterruptedException e) {
@@ -35,8 +35,20 @@ public class StudentService {
         }
     }
 
+    public void delete(UUID id) {
+        try {
+            vectorService.deleteStudent(id);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to delete student", e);
+        }
+    }
+
     public Student findById(UUID id) {
-        return studentMap.get(id);
+        try {
+            return vectorService.getStudentById(id);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch student", e);
+        }
     }
 
     public Student findPartner(Student student) {
@@ -47,7 +59,7 @@ public class StudentService {
 
             // Extract UUID from point ID
             UUID partnerId = UUID.fromString(point.getId().getUuid());
-            return studentMap.get(partnerId);
+            return findById(partnerId);
         } catch (Exception e) {
             throw new RuntimeException("Failed to find partner", e);
         }

@@ -1,4 +1,4 @@
-package pl.ddconstruction.VectorGradebook.model;
+package pl.ddconstruction.vectorgradebook.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
