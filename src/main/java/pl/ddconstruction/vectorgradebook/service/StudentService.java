@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutionException;
 public class StudentService {
 
     private final VectorProcessingService vectorService;
+    private final CourseService courseService;
 
     public List<Student> findAll() {
         try {
@@ -29,7 +30,7 @@ public class StudentService {
             student.setId(UUID.randomUUID());
         }
         try {
-            vectorService.upsertStudent(student);
+            vectorService.updateStudentVector(student);
         } catch (ExecutionException | InterruptedException e) {
             throw new RuntimeException("Failed to upsert vector", e);
         }
@@ -71,5 +72,41 @@ public class StudentService {
         } catch (Exception e) {
             return "Error calculating stats";
         }
+    }
+
+    public double calculateSubjectGrade(Student student) {
+        var config = courseService.getCurrentConfig();
+        if (config == null)
+            return 0.0;
+
+        List<pl.ddconstruction.vectorgradebook.model.Class> lectures = config.getClasses().stream()
+                .filter(c -> c.getType() == pl.ddconstruction.vectorgradebook.model.ClassType.LECTURE)
+                .toList();
+
+        List<pl.ddconstruction.vectorgradebook.model.Class> labs = config.getClasses().stream()
+                .filter(c -> c.getType() == pl.ddconstruction.vectorgradebook.model.ClassType.LAB)
+                .toList();
+
+        double lectureAvg = calculateAverage(student, lectures);
+        double labAvg = calculateAverage(student, labs);
+
+        if (lectures.isEmpty() && labs.isEmpty())
+            return 0.0;
+        if (lectures.isEmpty())
+            return labAvg;
+        if (labs.isEmpty())
+            return lectureAvg;
+
+        return (lectureAvg + labAvg) / 2.0;
+    }
+
+    private double calculateAverage(Student student, List<pl.ddconstruction.vectorgradebook.model.Class> classes) {
+        if (classes.isEmpty())
+            return 0.0;
+
+        double sum = classes.stream()
+                .mapToDouble(c -> student.getClassGrades().getOrDefault(c.getId(), 0.0))
+                .sum();
+        return sum / classes.size();
     }
 }

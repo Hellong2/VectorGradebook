@@ -1,20 +1,21 @@
 package pl.ddconstruction.vectorgradebook.service;
 
-import io.qdrant.client.PointIdFactory;
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.ValueFactory;
 import io.qdrant.client.VectorsFactory;
-
 import io.qdrant.client.grpc.JsonWithInt.Value;
 import io.qdrant.client.grpc.Points.PointStruct;
-import io.qdrant.client.grpc.Points.ScoredPoint;
-import io.qdrant.client.grpc.Points.SearchPoints;
 import io.qdrant.client.grpc.Points.RetrievedPoint;
+import io.qdrant.client.grpc.Points.ScoredPoint;
 import io.qdrant.client.grpc.Points.ScrollPoints;
+import io.qdrant.client.grpc.Points.SearchPoints;
 import io.qdrant.client.grpc.Points.WithVectorsSelector;
-
+import io.qdrant.client.grpc.Collections.Distance;
+import io.qdrant.client.grpc.Collections.VectorParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import pl.ddconstruction.vectorgradebook.model.Class;
+import pl.ddconstruction.vectorgradebook.model.CourseConfig;
 import pl.ddconstruction.vectorgradebook.model.Student;
 
 import java.util.*;
@@ -28,21 +29,27 @@ import static io.qdrant.client.PointIdFactory.id;
 public class VectorProcessingService {
 
     private final QdrantClient qdrantClient;
+    private final CourseService courseService;
     private static final String COLLECTION_NAME = "students";
-    // Fixed order for vector dimensions
-    private static final List<String> TOPICS = List.of("Algorithms", "Databases", "Java", "Testing");
-    private static final int VECTOR_DIMENSIONS = 4;
     private static final int MAX_POINTS_TO_ANALYZE = 100;
 
-    public void upsertStudent(Student student) throws ExecutionException, InterruptedException {
-        // Convert grades to float vector in fixed order
-        List<Float> vector = TOPICS.stream()
-                .map(topic -> student.getGrades().getOrDefault(topic, 0.0).floatValue())
+    public void updateStudentVector(Student student) throws ExecutionException, InterruptedException {
+        CourseConfig config = courseService.getCurrentConfig();
+        if (config == null || config.getClasses().isEmpty()) {
+            throw new IllegalStateException("Course not configured");
+        }
+
+        // Sort classes to ensure consistent vector dimension order
+        List<Class> sortedClasses = getSortedClasses(config);
+
+        // Convert grades to float vector based on sorted classes
+        List<Float> vector = sortedClasses.stream()
+                .map(cls -> student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
                 .toList();
 
-        // Convert grades map to Qdrant payload map
+        // Convert grades map (UUID -> Double) to Qdrant payload (String -> Double)
         Map<String, Value> gradesPayload = new HashMap<>();
-        student.getGrades().forEach((k, v) -> gradesPayload.put(k, ValueFactory.value(v)));
+        student.getClassGrades().forEach((k, v) -> gradesPayload.put(k.toString(), ValueFactory.value(v)));
 
         PointStruct point = PointStruct.newBuilder()
                 .setId(id(student.getId()))
@@ -61,13 +68,34 @@ public class VectorProcessingService {
                 .toList();
     }
 
+    public void recreateCollection(int dimension) {
+        try {
+            qdrantClient.deleteCollectionAsync(COLLECTION_NAME).get();
+            System.out.println("Collection 'students' deleted.");
+        } catch (Exception e) {
+            System.out.println("Collection deletion skipped (likely didn't exist): " + e.getMessage());
+        }
+
+        try {
+            qdrantClient.createCollectionAsync(
+                    COLLECTION_NAME,
+                    VectorParams.newBuilder()
+                            .setSize(dimension)
+                            .setDistance(Distance.Cosine)
+                            .build())
+                    .get();
+            System.out.println("Collection 'students' created with dimension: " + dimension);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create collection", e);
+        }
+    }
+
     public void deleteStudent(UUID id) throws ExecutionException, InterruptedException {
         qdrantClient.deleteAsync(COLLECTION_NAME, List.of(id(id)))
                 .get();
     }
 
     public Student getStudentById(UUID id) throws ExecutionException, InterruptedException {
-        // For small datasets, retrieving all and filtering is acceptable
         return getAllStudents().stream()
                 .filter(s -> s.getId().equals(id))
                 .findFirst()
@@ -79,29 +107,33 @@ public class VectorProcessingService {
         String name = point.getPayloadMap().containsKey("name") ? point.getPayloadMap().get("name").getStringValue()
                 : "Unknown";
 
-        Map<String, Double> grades = new HashMap<>();
+        Map<UUID, Double> grades = new HashMap<>();
 
         if (point.getPayloadMap().containsKey("grades")) {
             Map<String, Value> gradesStruct = point.getPayloadMap()
                     .get("grades").getStructValue().getFieldsMap();
-            gradesStruct.forEach((k, v) -> grades.put(k, v.getDoubleValue()));
+            gradesStruct.forEach((k, v) -> grades.put(UUID.fromString(k), v.getDoubleValue()));
         }
 
         return Student.builder()
                 .id(id)
                 .name(name)
-                .grades(grades)
+                .classGrades(grades)
                 .build();
     }
 
     public ScoredPoint findComplementaryPartner(Student student) throws ExecutionException, InterruptedException {
-        // Target vector calculation
-        List<Float> targetVector = TOPICS.stream()
-                .map(topic -> 5.0f - student.getGrades().getOrDefault(topic, 0.0).floatValue())
+        CourseConfig config = courseService.getCurrentConfig();
+        if (config == null)
+            return null;
+
+        List<Class> sortedClasses = getSortedClasses(config);
+
+        // Target vector calculation (Complementary skills)
+        List<Float> targetVector = sortedClasses.stream()
+                .map(cls -> 5.0f - student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
                 .collect(Collectors.toList());
 
-        // Get top 5 results and filter manually in Java to avoid import issues with
-        // Filter/Condition
         List<ScoredPoint> results = qdrantClient.searchAsync(
                 SearchPoints.newBuilder()
                         .setCollectionName(COLLECTION_NAME)
@@ -114,7 +146,6 @@ public class VectorProcessingService {
             return null;
         }
 
-        // Filter out the student themselves
         String studentIdStr = student.getId().toString();
 
         return results.stream()
@@ -123,13 +154,6 @@ public class VectorProcessingService {
                 .orElse(null);
     }
 
-    /**
-     * Identifies the topic area with the lowest average score across all student
-     * data.
-     *
-     * @return Topic name with its average score, or "No data" if collection is
-     *         empty
-     */
     public String findProblematicAreas() throws ExecutionException, InterruptedException {
         List<RetrievedPoint> points = fetchPointsFromQdrant();
 
@@ -137,10 +161,20 @@ public class VectorProcessingService {
             return "No data";
         }
 
-        double[] averages = calculateAverageScoresPerDimension(points);
+        CourseConfig config = courseService.getCurrentConfig();
+        if (config == null)
+            return "No config";
+
+        List<Class> sortedClasses = getSortedClasses(config);
+        int dimensions = sortedClasses.size();
+
+        double[] averages = calculateAverageScoresPerDimension(points, dimensions);
         int lowestScoreIndex = findIndexOfLowestAverage(averages);
 
-        return formatResult(lowestScoreIndex, averages[lowestScoreIndex]);
+        if (lowestScoreIndex >= sortedClasses.size())
+            return "Index Error";
+
+        return formatResult(sortedClasses.get(lowestScoreIndex), averages[lowestScoreIndex]);
     }
 
     private List<RetrievedPoint> fetchPointsFromQdrant() throws ExecutionException, InterruptedException {
@@ -154,8 +188,8 @@ public class VectorProcessingService {
                 .getResultList();
     }
 
-    private double[] calculateAverageScoresPerDimension(List<RetrievedPoint> points) {
-        double[] dimensionSums = sumVectorsByDimension(points);
+    private double[] calculateAverageScoresPerDimension(List<RetrievedPoint> points, int dimensions) {
+        double[] dimensionSums = sumVectorsByDimension(points, dimensions);
         int pointCount = points.size();
 
         return Arrays.stream(dimensionSums)
@@ -163,13 +197,13 @@ public class VectorProcessingService {
                 .toArray();
     }
 
-    private double[] sumVectorsByDimension(List<RetrievedPoint> points) {
-        double[] sums = new double[VECTOR_DIMENSIONS];
+    private double[] sumVectorsByDimension(List<RetrievedPoint> points, int dimensions) {
+        double[] sums = new double[dimensions];
 
         for (RetrievedPoint point : points) {
             List<Float> vector = point.getVectors().getVector().getDataList();
 
-            for (int dimension = 0; dimension < VECTOR_DIMENSIONS; dimension++) {
+            for (int dimension = 0; dimension < dimensions && dimension < vector.size(); dimension++) {
                 sums[dimension] += vector.get(dimension);
             }
         }
@@ -178,6 +212,8 @@ public class VectorProcessingService {
     }
 
     private int findIndexOfLowestAverage(double[] averages) {
+        if (averages.length == 0)
+            return 0;
         int lowestIndex = 0;
         double lowestValue = averages[0];
 
@@ -191,10 +227,16 @@ public class VectorProcessingService {
         return lowestIndex;
     }
 
-    private String formatResult(int topicIndex, double averageScore) {
-        String topicName = TOPICS.get(topicIndex);
+    private String formatResult(Class cls, double averageScore) {
         String formattedScore = String.format("%.2f", averageScore);
+        return String.format("%s (%s) - Avg: %s", cls.getTopic(), cls.getType(), formattedScore);
+    }
 
-        return String.format("%s (Avg: %s)", topicName, formattedScore);
+    private List<Class> getSortedClasses(CourseConfig config) {
+        // Sort by Date, then ID to ensure deterministic order
+        return config.getClasses().stream()
+                .sorted(Comparator.comparing(Class::getDate)
+                        .thenComparing(Class::getId))
+                .toList();
     }
 }

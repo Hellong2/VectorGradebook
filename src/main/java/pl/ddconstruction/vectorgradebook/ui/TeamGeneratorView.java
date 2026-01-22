@@ -12,25 +12,33 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import pl.ddconstruction.vectorgradebook.model.Student;
 import pl.ddconstruction.vectorgradebook.service.StudentService;
+import pl.ddconstruction.vectorgradebook.service.CourseService;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Route(value = "teams", layout = MainLayout.class)
 public class TeamGeneratorView extends VerticalLayout {
 
     private final StudentService studentService;
+    private final CourseService courseService;
     private final Grid<Team> teamGrid = new Grid<>(Team.class);
     private final Span statsSpan = new Span();
 
-    public TeamGeneratorView(StudentService studentService) {
+    public TeamGeneratorView(StudentService studentService, CourseService courseService) {
         this.studentService = studentService;
+        this.courseService = courseService;
 
         setSizeFull();
+
+        if (!courseService.isConfigured()) {
+            add("Przedmiot nie jest skonfigurowany.");
+            return;
+        }
 
         Button generateButton = new Button("Generuj Zespoły", e -> generateTeams());
         generateButton.addThemeVariants(com.vaadin.flow.component.button.ButtonVariant.LUMO_PRIMARY);
@@ -43,11 +51,7 @@ public class TeamGeneratorView extends VerticalLayout {
     }
 
     private void showStats() {
-        // Translate stats if possible, or just show the topic
         String stats = studentService.getProblematicAreaStats();
-        // Simple translation mappings for topics could be added, but preserving English
-        // topic names is likely fine for "Algorithms" etc.
-        // Maybe just the label "Problematic Area".
         statsSpan.setText("Najsłabszy Obszar Klasy: " + stats);
         statsSpan.getElement().getStyle().set("font-weight", "bold");
     }
@@ -55,35 +59,31 @@ public class TeamGeneratorView extends VerticalLayout {
     private void configureGrid() {
         teamGrid.removeAllColumns();
         teamGrid.addColumn(t -> t.member1.getName()).setHeader("Student 1");
-        teamGrid.addColumn(t -> formatGrades(t.member1.getGrades())).setHeader("Oceny S1").setAutoWidth(true);
+        teamGrid.addColumn(t -> formatGrades(t.member1.getClassGrades())).setHeader("Oceny S1").setAutoWidth(true);
         teamGrid.addColumn(t -> t.member2.getName()).setHeader("Partner");
-        teamGrid.addColumn(t -> t.member2 != null ? formatGrades(t.member2.getGrades()) : "-")
+        teamGrid.addColumn(t -> t.member2 != null ? formatGrades(t.member2.getClassGrades()) : "-")
                 .setHeader("Oceny Partnera").setAutoWidth(true);
     }
 
-    private String formatGrades(java.util.Map<String, Double> grades) {
+    private String formatGrades(java.util.Map<UUID, Double> grades) {
         if (grades == null)
             return "";
-        // Format as: Algo: 5.0, DB: 3.0...
-        return grades.entrySet().stream()
-                .map(e -> String.format("%s: %.1f", mapTopicToShort(e.getKey()), e.getValue()))
-                .collect(Collectors.joining(", "));
-    }
 
-    private String mapTopicToShort(String topic) {
-        // Optional: Shorten or translate
-        switch (topic) {
-            case "Algorithms":
-                return "Alg";
-            case "Databases":
-                return "BD";
-            case "Java":
-                return "Java";
-            case "Testing":
-                return "Test";
-            default:
-                return topic;
-        }
+        var config = courseService.getCurrentConfig();
+        if (config == null)
+            return "";
+
+        // Map UUID to Topic Name for display
+        return grades.entrySet().stream()
+                .map(e -> {
+                    String topic = config.getClasses().stream()
+                            .filter(c -> c.getId().equals(e.getKey()))
+                            .findFirst()
+                            .map(c -> c.getTopic())
+                            .orElse("Unknown");
+                    return String.format("%s: %.1f", topic, e.getValue());
+                })
+                .collect(Collectors.joining(", "));
     }
 
     private void generateTeams() {
@@ -107,7 +107,7 @@ public class TeamGeneratorView extends VerticalLayout {
         // Add unmatched
         for (Student s : allStudents) {
             if (!matched.contains(s)) {
-                Student placeholder = Student.builder().name("Brak Partnera").grades(null).build();
+                Student placeholder = Student.builder().name("Brak Partnera").classGrades(null).build();
                 teams.add(new Team(s, placeholder));
                 matched.add(s);
             }

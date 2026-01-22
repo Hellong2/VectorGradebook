@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,6 +16,7 @@ import java.util.UUID;
 public class Student {
     private UUID id;
     private String name;
-    // Keys: "Algorithms", "Databases", "Java", "Testing"
-    private Map<String, Double> grades;
+
+    @Builder.Default
+    private Map<UUID, Double> classGrades = new HashMap<>();
 }

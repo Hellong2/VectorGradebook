@@ -2,15 +2,27 @@ package pl.ddconstruction.vectorgradebook.ui;
 
 import com.vaadin.flow.component.applayout.AppLayout;
 import com.vaadin.flow.component.applayout.DrawerToggle;
+import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H1;
+import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.icon.Icon;
+import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
+import com.vaadin.flow.component.orderedlayout.Scroller;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.router.RouterLink;
+import pl.ddconstruction.vectorgradebook.service.CourseService;
 
 public class MainLayout extends AppLayout {
 
-    public MainLayout() {
+    private final CourseService courseService;
+
+    public MainLayout(CourseService courseService) {
+        this.courseService = courseService;
         createHeader();
         createDrawer();
     }
@@ -20,6 +32,7 @@ public class MainLayout extends AppLayout {
         logo.addClassNames("text-l", "m-m");
 
         HorizontalLayout header = new HorizontalLayout(new DrawerToggle(), logo);
+
         header.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
         header.setWidth("100%");
         header.addClassNames("py-0", "px-m");
@@ -28,9 +41,48 @@ public class MainLayout extends AppLayout {
     }
 
     private void createDrawer() {
-        RouterLink listLink = new RouterLink("Dziennik Ocen", GradeBookView.class);
-        RouterLink teamsLink = new RouterLink("Generator Zespołów", TeamGeneratorView.class);
+        VerticalLayout list = new VerticalLayout();
+        list.setHeightFull(); // Allow list to take full height for positioning
 
-        addToDrawer(new VerticalLayout(listLink, teamsLink));
+        if (courseService.isConfigured()) {
+            list.add(new RouterLink("Dziennik Ocen", GradeBookView.class));
+            list.add(new RouterLink("Generator Zespołów", TeamGeneratorView.class));
+        }
+
+        // Spacer to push the reset button to the bottom
+        Div spacer = new Div();
+        list.add(spacer);
+        list.setFlexGrow(1, spacer);
+
+        // Reset configuration button with confirmation
+        Button resetBtn = new Button("Konfiguracja (Reset)", new Icon(VaadinIcon.COG));
+        resetBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_ERROR);
+        resetBtn.setWidthFull();
+        resetBtn.addClickListener(e -> showResetConfirmation());
+
+        list.add(resetBtn);
+
+        addToDrawer(new Scroller(list));
+    }
+
+    private void showResetConfirmation() {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Reset Konfiguracji");
+
+        VerticalLayout layout = new VerticalLayout(
+                new Span("Czy na pewno chcesz zresetować konfigurację?"),
+                new Span("To spowoduje usunięcie wszystkich danych studentów!"));
+        dialog.add(layout);
+
+        Button confirm = new Button("Resetuj", e -> {
+            getUI().ifPresent(ui -> ui.navigate(SetupWizardView.class));
+            dialog.close();
+        });
+        confirm.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_ERROR);
+
+        Button cancel = new Button("Anuluj", e -> dialog.close());
+
+        dialog.getFooter().add(cancel, confirm);
+        dialog.open();
     }
 }
