@@ -3,7 +3,9 @@ package pl.ddconstruction.vectorgradebook.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.Getter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import pl.ddconstruction.vectorgradebook.exception.ConfigurationException;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
 
 import java.io.File;
@@ -19,7 +21,7 @@ public class CourseService {
     private CourseConfig currentConfig;
 
     public CourseService(
-            @org.springframework.beans.factory.annotation.Value("${app.course-config.path:course_config.json}") String configPath) {
+            @Value("${app.course-config.path:course_config.json}") String configPath) {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
         this.configFile = new File(configPath);
@@ -35,16 +37,8 @@ public class CourseService {
             objectMapper.writeValue(configFile, config);
             this.currentConfig = config;
         } catch (IOException e) {
-            throw new RuntimeException("Failed to save course configuration", e);
-        }
-    }
-
-    public void importConfig(File file) {
-        try {
-            CourseConfig importedConfig = objectMapper.readValue(file, CourseConfig.class);
-            saveConfig(importedConfig);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to import course configuration", e);
+            throw new ConfigurationException(
+                    "Failed to save course configuration", e);
         }
     }
 
@@ -61,8 +55,4 @@ public class CourseService {
         }
     }
 
-    public void addSession(pl.ddconstruction.vectorgradebook.model.Class session) {
-        currentConfig.getClasses().add(session);
-        saveConfig(currentConfig);
-    }
 }

@@ -6,7 +6,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Data
 @Builder
@@ -17,5 +19,5 @@ public class CourseConfig {
     @Builder.Default
     private List<Class> classes = new ArrayList<>();
     @Builder.Default
-    private java.util.Set<String> availableTags = new java.util.HashSet<>();
+    private Set<String> availableTags = new HashSet<>();
 }

@@ -25,7 +25,6 @@ import java.util.UUID;
 public class GradeBookView extends VerticalLayout {
 
     private final StudentService studentService;
-    private final CourseService courseService;
     private final Grid<Student> grid = new Grid<>(Student.class);
 
     // Config needed for dynamic columns
@@ -33,7 +32,6 @@ public class GradeBookView extends VerticalLayout {
 
     public GradeBookView(StudentService studentService, CourseService courseService) {
         this.studentService = studentService;
-        this.courseService = courseService;
 
         this.config = courseService.getCurrentConfig();
 

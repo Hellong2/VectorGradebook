@@ -6,21 +6,22 @@ import io.qdrant.client.VectorsFactory;
 import io.qdrant.client.grpc.JsonWithInt.Value;
 import io.qdrant.client.grpc.Points.PointStruct;
 import io.qdrant.client.grpc.Points.RetrievedPoint;
-import io.qdrant.client.grpc.Points.ScoredPoint;
 import io.qdrant.client.grpc.Points.ScrollPoints;
-import io.qdrant.client.grpc.Points.SearchPoints;
 import io.qdrant.client.grpc.Points.WithVectorsSelector;
 import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import pl.ddconstruction.vectorgradebook.exception.ConfigurationException;
+import pl.ddconstruction.vectorgradebook.exception.StudentNotFoundException;
+import pl.ddconstruction.vectorgradebook.exception.VectorGradebookException;
+import pl.ddconstruction.vectorgradebook.exception.VectorStorageException;
 import pl.ddconstruction.vectorgradebook.model.Class;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
 import pl.ddconstruction.vectorgradebook.model.Student;
 
 import java.util.*;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 
 import static io.qdrant.client.PointIdFactory.id;
 
@@ -33,10 +34,10 @@ public class VectorProcessingService {
     private static final String COLLECTION_NAME = "students";
     private static final int MAX_POINTS_TO_ANALYZE = 100;
 
-    public void updateStudentVector(Student student) throws ExecutionException, InterruptedException {
+    public void updateStudentVector(Student student) {
         CourseConfig config = courseService.getCurrentConfig();
         if (config == null || config.getClasses().isEmpty()) {
-            throw new IllegalStateException("Course not configured");
+            throw new ConfigurationException("Course not configured");
         }
 
         // Sort classes to ensure consistent vector dimension order
@@ -46,11 +47,6 @@ public class VectorProcessingService {
         List<Float> vector = sortedClasses.stream()
                 .map(cls -> student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
                 .toList();
-
-        System.out.println("DEBUG: Config classes size: " + config.getClasses().size());
-        System.out.println("DEBUG: Sorted classes size: " + sortedClasses.size());
-        System.out.println("DEBUG: Generated vector size: " + vector.size());
-        System.out.println("DEBUG: Generated vector: " + vector);
 
         // Convert grades map (UUID -> Double) to Qdrant payload (String -> Double)
         Map<String, Value> gradesPayload = new HashMap<>();
@@ -63,14 +59,23 @@ public class VectorProcessingService {
                 .putPayload("grades", ValueFactory.value(gradesPayload))
                 .build();
 
-        qdrantClient.upsertAsync(COLLECTION_NAME, List.of(point)).get();
+        try {
+            qdrantClient.upsertAsync(COLLECTION_NAME, List.of(point)).get();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new VectorStorageException(
+                    "Failed to save student vector", e);
+        }
     }
 
-    public List<Student> getAllStudents() throws ExecutionException, InterruptedException {
-        List<RetrievedPoint> points = fetchPointsFromQdrant();
-        return points.stream()
-                .map(this::mapPointToStudent)
-                .toList();
+    public List<Student> getAllStudents() {
+        try {
+            List<RetrievedPoint> points = fetchPointsFromQdrant();
+            return points.stream()
+                    .map(this::mapPointToStudent)
+                    .toList();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new VectorStorageException("Failed to fetch students", e);
+        }
     }
 
     public void recreateCollection(int dimension) {
@@ -91,20 +96,69 @@ public class VectorProcessingService {
                     .get();
             System.out.println("Collection 'students' created with dimension: " + dimension);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create collection", e);
+            throw new VectorStorageException("Failed to create collection",
+                    e);
         }
     }
 
-    public void deleteStudent(UUID id) throws ExecutionException, InterruptedException {
-        qdrantClient.deleteAsync(COLLECTION_NAME, List.of(id(id)))
-                .get();
+    public void deleteStudent(UUID id) {
+        try {
+            qdrantClient.deleteAsync(COLLECTION_NAME, List.of(id(id))).get();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new VectorStorageException("Failed to delete student", e);
+        }
     }
 
-    public Student getStudentById(UUID id) throws ExecutionException, InterruptedException {
-        return getAllStudents().stream()
-                .filter(s -> s.getId().equals(id))
-                .findFirst()
-                .orElse(null);
+    public Student getStudentById(UUID id) {
+        try {
+            List<RetrievedPoint> points = qdrantClient.retrieveAsync(
+                    COLLECTION_NAME,
+                    List.of(id(id)),
+                    true,
+                    true,
+                    null).get();
+
+            if (points.isEmpty()) {
+                throw new StudentNotFoundException(id);
+            }
+            return mapPointToStudent(points.get(0));
+        } catch (ExecutionException | InterruptedException e) {
+            throw new VectorStorageException("Failed to retrieve student",
+                    e);
+        }
+    }
+
+    public io.qdrant.client.grpc.Points.ScoredPoint findComplementaryPartner(Student student) {
+        try {
+            CourseConfig config = courseService.getCurrentConfig();
+            if (config == null || config.getClasses().isEmpty()) {
+                throw new ConfigurationException("Course not configured");
+            }
+
+            List<Class> sortedClasses = getSortedClasses(config);
+            List<Float> vector = sortedClasses.stream()
+                    .map(cls -> student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
+                    .toList();
+
+            // Search for nearest neighbors (simplified partner logic)
+            List<io.qdrant.client.grpc.Points.ScoredPoint> points = qdrantClient.searchAsync(
+                    io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
+                            .setCollectionName(COLLECTION_NAME)
+                            .addAllVector(vector)
+                            .setLimit(5)
+                            .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder()
+                                    .setEnable(true).build())
+                            .build())
+                    .get();
+
+            return points.stream()
+                    .filter(p -> !p.getId().getUuid().equals(student.getId().toString()))
+                    .findFirst()
+                    .orElse(null);
+
+        } catch (ExecutionException | InterruptedException e) {
+            throw new VectorStorageException("Failed to find partner", e);
+        }
     }
 
     private Student mapPointToStudent(RetrievedPoint point) {
@@ -127,87 +181,60 @@ public class VectorProcessingService {
                 .build();
     }
 
-    public ScoredPoint findComplementaryPartner(Student student) throws ExecutionException, InterruptedException {
-        CourseConfig config = courseService.getCurrentConfig();
-        if (config == null)
-            return null;
+    public String findProblematicAreas() {
+        try {
+            List<RetrievedPoint> points = fetchPointsFromQdrant();
 
-        List<Class> sortedClasses = getSortedClasses(config);
-
-        // Target vector calculation (Complementary skills)
-        List<Float> targetVector = sortedClasses.stream()
-                .map(cls -> 5.0f - student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
-                .collect(Collectors.toList());
-
-        List<ScoredPoint> results = qdrantClient.searchAsync(
-                SearchPoints.newBuilder()
-                        .setCollectionName(COLLECTION_NAME)
-                        .addAllVector(targetVector)
-                        .setLimit(5)
-                        .build())
-                .get();
-
-        if (results.isEmpty()) {
-            return null;
-        }
-
-        String studentIdStr = student.getId().toString();
-
-        return results.stream()
-                .filter(sp -> !sp.getId().getUuid().equals(studentIdStr))
-                .findFirst()
-                .orElse(null);
-    }
-
-    public String findProblematicAreas() throws ExecutionException, InterruptedException {
-        List<RetrievedPoint> points = fetchPointsFromQdrant();
-
-        if (points.isEmpty()) {
-            return "No data";
-        }
-
-        CourseConfig config = courseService.getCurrentConfig();
-        if (config == null)
-            return "No config";
-
-        Map<String, List<Double>> scoresByTag = new HashMap<>();
-
-        // Process each student
-        for (RetrievedPoint point : points) {
-            Student student = mapPointToStudent(point);
-            Map<UUID, Double> grades = student.getClassGrades();
-
-            // Map grades to tags
-            config.getClasses().forEach(cls -> {
-                Double val = grades.get(cls.getId());
-                if (val != null) {
-                    for (String tag : cls.getTags()) {
-                        scoresByTag.computeIfAbsent(tag, k -> new ArrayList<>()).add(val);
-                    }
-                }
-            });
-        }
-
-        if (scoresByTag.isEmpty()) {
-            return "No tags data";
-        }
-
-        // Calculate averages
-        String worstTag = null;
-        double minAvg = Double.MAX_VALUE;
-
-        for (Map.Entry<String, List<Double>> entry : scoresByTag.entrySet()) {
-            double avg = entry.getValue().stream().mapToDouble(d -> d).average().orElse(0.0);
-            if (avg < minAvg) {
-                minAvg = avg;
-                worstTag = entry.getKey();
+            if (points.isEmpty()) {
+                throw new VectorGradebookException(
+                        "No data available for analysis");
             }
+
+            CourseConfig config = courseService.getCurrentConfig();
+            if (config == null)
+                throw new ConfigurationException("Configuration missing");
+
+            Map<String, List<Double>> scoresByTag = new HashMap<>();
+
+            // Process each student
+            for (RetrievedPoint point : points) {
+                Student student = mapPointToStudent(point);
+                Map<UUID, Double> grades = student.getClassGrades();
+
+                // Map grades to tags
+                config.getClasses().forEach(cls -> {
+                    Double val = grades.get(cls.getId());
+                    if (val != null) {
+                        for (String tag : cls.getTags()) {
+                            scoresByTag.computeIfAbsent(tag, k -> new ArrayList<>()).add(val);
+                        }
+                    }
+                });
+            }
+
+            if (scoresByTag.isEmpty()) {
+                return "No tags data";
+            }
+
+            // Calculate averages
+            String worstTag = null;
+            double minAvg = Double.MAX_VALUE;
+
+            for (Map.Entry<String, List<Double>> entry : scoresByTag.entrySet()) {
+                double avg = entry.getValue().stream().mapToDouble(d -> d).average().orElse(0.0);
+                if (avg < minAvg) {
+                    minAvg = avg;
+                    worstTag = entry.getKey();
+                }
+            }
+
+            if (worstTag == null)
+                return "Unknown";
+
+            return String.format("%s (Avg: %.2f)", worstTag, minAvg);
+        } catch (ExecutionException | InterruptedException e) {
+            throw new VectorStorageException("Failed to analyze areas", e);
         }
-
-        if (worstTag == null)
-            return "Unknown";
-
-        return String.format("%s (Avg: %.2f)", worstTag, minAvg);
     }
 
     private List<RetrievedPoint> fetchPointsFromQdrant() throws ExecutionException, InterruptedException {

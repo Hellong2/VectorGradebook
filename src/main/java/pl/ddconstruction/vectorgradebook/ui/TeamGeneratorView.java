@@ -1,6 +1,7 @@
 package pl.ddconstruction.vectorgradebook.ui;
 
 import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
@@ -23,7 +24,6 @@ import java.util.stream.Collectors;
 public class TeamGeneratorView extends VerticalLayout {
 
     private final StudentService studentService;
-    private final CourseService courseService;
     private final TeamFormationService teamFormationService;
 
     private final Grid<Team> teamGrid = new Grid<>(Team.class);
@@ -34,7 +34,6 @@ public class TeamGeneratorView extends VerticalLayout {
             CourseService courseService,
             TeamFormationService teamFormationService) {
         this.studentService = studentService;
-        this.courseService = courseService;
         this.teamFormationService = teamFormationService;
 
         setSizeFull();
@@ -49,7 +48,7 @@ public class TeamGeneratorView extends VerticalLayout {
         sizePreference.setValue("Pary (2)");
 
         Button generateButton = new Button("Generuj Zespoły", e -> generateTeams());
-        generateButton.addThemeVariants(com.vaadin.flow.component.button.ButtonVariant.LUMO_PRIMARY);
+        generateButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
         Button statsButton = new Button("Pokaż Najsłabszy Obszar", e -> showStats());
 
@@ -62,8 +61,14 @@ public class TeamGeneratorView extends VerticalLayout {
     }
 
     private void showStats() {
-        String stats = studentService.getProblematicAreaStats();
-        statsSpan.setText("Najsłabszy Obszar Klasy: " + stats);
+        try {
+            String stats = studentService.getProblematicAreaStats();
+            statsSpan.setText("Najsłabszy Obszar Klasy: " + stats);
+            statsSpan.getElement().getThemeList().remove("error");
+        } catch (Exception e) {
+            statsSpan.setText(e.getMessage());
+            statsSpan.getElement().getThemeList().add("error");
+        }
         statsSpan.getElement().getStyle().set("font-weight", "bold");
     }
 

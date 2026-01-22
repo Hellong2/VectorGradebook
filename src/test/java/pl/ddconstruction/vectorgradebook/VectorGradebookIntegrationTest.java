@@ -4,7 +4,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -13,18 +15,20 @@ import pl.ddconstruction.vectorgradebook.model.ClassType;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
 import pl.ddconstruction.vectorgradebook.model.Student;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
+import pl.ddconstruction.vectorgradebook.service.TeamFormationService;
 import pl.ddconstruction.vectorgradebook.service.VectorProcessingService;
+import pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView;
+import pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView.Team;
 
 import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
 @Testcontainers
-@org.springframework.test.context.TestPropertySource(properties = "app.course-config.path=target/test-course_config.json")
+@TestPropertySource(properties = "app.course-config.path=target/test-course_config.json")
 public class VectorGradebookIntegrationTest {
 
     @Container
@@ -32,7 +36,7 @@ public class VectorGradebookIntegrationTest {
             .withExposedPorts(6334);
 
     @DynamicPropertySource
-    static void qdrantProperties(org.springframework.test.context.DynamicPropertyRegistry registry) {
+    static void qdrantProperties(DynamicPropertyRegistry registry) {
         registry.add("qdrant.host", qdrant::getHost);
         registry.add("qdrant.port", () -> qdrant.getMappedPort(6334));
     }
@@ -44,7 +48,7 @@ public class VectorGradebookIntegrationTest {
     private CourseService courseService;
 
     @Autowired
-    private pl.ddconstruction.vectorgradebook.service.TeamFormationService teamFormationService;
+    private TeamFormationService teamFormationService;
 
     @BeforeEach
     void setUp() throws ExecutionException, InterruptedException {
@@ -146,9 +150,9 @@ public class VectorGradebookIntegrationTest {
         assertFalse(students.isEmpty());
     }
 
-    private void verifyTeamFormation(List<Student> students) throws ExecutionException, InterruptedException {
+    private void verifyTeamFormation(List<Student> students) {
         // Test Prefer 2
-        List<pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView.Team> pairs = teamFormationService
+        List<Team> pairs = teamFormationService
                 .generateTeams(students, false);
         System.out.println("Generated Pair Teams count: " + pairs.size());
         assertEquals(15, countStudentsInTeams(pairs), "All students should be assigned in pairs preference");
@@ -161,7 +165,7 @@ public class VectorGradebookIntegrationTest {
                 "Should have at least one trio to handle odd number");
 
         // Test Prefer 3
-        List<pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView.Team> trios = teamFormationService
+        List<Team> trios = teamFormationService
                 .generateTeams(students, true);
         System.out.println("Generated Trio Teams count: " + trios.size());
         assertEquals(15, countStudentsInTeams(trios), "All students should be assigned in trios preference");
@@ -170,7 +174,7 @@ public class VectorGradebookIntegrationTest {
         assertTrue(trios.stream().allMatch(t -> t.getMembers().size() == 3), "All teams should be trios");
     }
 
-    private int countStudentsInTeams(List<pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView.Team> teams) {
+    private int countStudentsInTeams(List<Team> teams) {
         return teams.stream().mapToInt(t -> t.getMembers().size()).sum();
     }
 }

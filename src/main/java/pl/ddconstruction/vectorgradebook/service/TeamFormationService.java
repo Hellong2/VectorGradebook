@@ -1,5 +1,6 @@
 package pl.ddconstruction.vectorgradebook.service;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import jdk.incubator.vector.FloatVector;
 import jdk.incubator.vector.VectorSpecies;
@@ -91,7 +92,7 @@ public class TeamFormationService {
 
             boolean anyAssigned = pt.memberIndices.stream().anyMatch(assigned::contains);
             if (!anyAssigned) {
-                List<Student> members = pt.memberIndices.stream().map(studentMap::get).collect(Collectors.toList());
+                List<Student> members = pt.memberIndices.stream().map(studentMap::get).toList();
                 finalTeams.add(new TeamGeneratorView.Team(new ArrayList<>(members), pt.score));
                 assigned.addAll(pt.memberIndices);
             }
@@ -113,7 +114,7 @@ public class TeamFormationService {
             for (TeamGeneratorView.Team team : teams) {
                 List<Integer> currentMembers = team.getMembers().stream()
                         .map(s -> findStudentIndex(studentMap, s))
-                        .collect(Collectors.toList());
+                        .toList();
 
                 List<Integer> newMembers = new ArrayList<>(currentMembers);
                 newMembers.add(sIdx);
@@ -144,7 +145,7 @@ public class TeamFormationService {
     }
 
     private List<PotentialTeam> generateAllCombinations(int studentCount, float[][] gradeMatrix, int tagCount) {
-        List<Integer> indices = IntStream.range(0, studentCount).boxed().collect(Collectors.toList());
+        List<Integer> indices = IntStream.range(0, studentCount).boxed().toList();
 
         List<PotentialTeam> pairs = Generator.combination(indices)
                 .simple(2)
@@ -158,7 +159,7 @@ public class TeamFormationService {
                 .stream()
                 .parallel()
                 .map(members -> new PotentialTeam(members, calculateTeamScoreVector(members, gradeMatrix, tagCount)))
-                .collect(Collectors.toList());
+                .toList();
 
         pairs.addAll(trios);
         return pairs;
@@ -179,7 +180,7 @@ public class TeamFormationService {
         // Vector Loop
         for (; i < upperBound; i += SPECIES.length()) {
             // Init with MIN_VALUE or just the first student's values
-            FloatVector maxVec = FloatVector.fromArray(SPECIES, gradeMatrix[memberIndices.get(0)], i);
+            FloatVector maxVec = FloatVector.fromArray(SPECIES, gradeMatrix[memberIndices.getFirst()], i);
 
             // Max against other students
             for (int m = 1; m < memberIndices.size(); m++) {
@@ -193,7 +194,7 @@ public class TeamFormationService {
 
         // Post-loop for remaining elements
         for (; i < tagCount; i++) {
-            float maxVal = gradeMatrix[memberIndices.get(0)][i];
+            float maxVal = gradeMatrix[memberIndices.getFirst()][i];
             for (int m = 1; m < memberIndices.size(); m++) {
                 maxVal = Math.max(maxVal, gradeMatrix[memberIndices.get(m)][i]);
             }
@@ -218,6 +219,7 @@ public class TeamFormationService {
 
     private static class PotentialTeam {
         List<Integer> memberIndices;
+        @Getter
         double score;
 
         public PotentialTeam(List<Integer> memberIndices, double score) {
@@ -225,8 +227,5 @@ public class TeamFormationService {
             this.score = score;
         }
 
-        public double getScore() {
-            return score;
-        }
     }
 }
