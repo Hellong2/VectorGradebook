@@ -7,18 +7,16 @@ import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.notification.Notification;
+import com.vaadin.flow.component.radiobutton.RadioButtonGroup;
 import com.vaadin.flow.router.Route;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import pl.ddconstruction.vectorgradebook.model.Student;
 import pl.ddconstruction.vectorgradebook.service.StudentService;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
+import pl.ddconstruction.vectorgradebook.service.TeamFormationService;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Route(value = "teams", layout = MainLayout.class)
@@ -26,12 +24,18 @@ public class TeamGeneratorView extends VerticalLayout {
 
     private final StudentService studentService;
     private final CourseService courseService;
+    private final TeamFormationService teamFormationService;
+
     private final Grid<Team> teamGrid = new Grid<>(Team.class);
     private final Span statsSpan = new Span();
+    private final RadioButtonGroup<String> sizePreference = new RadioButtonGroup<>();
 
-    public TeamGeneratorView(StudentService studentService, CourseService courseService) {
+    public TeamGeneratorView(StudentService studentService,
+            CourseService courseService,
+            TeamFormationService teamFormationService) {
         this.studentService = studentService;
         this.courseService = courseService;
+        this.teamFormationService = teamFormationService;
 
         setSizeFull();
 
@@ -40,6 +44,10 @@ public class TeamGeneratorView extends VerticalLayout {
             return;
         }
 
+        sizePreference.setLabel("Preferencja rozmiaru zespołu");
+        sizePreference.setItems("Pary (2)", "Trójki (3)");
+        sizePreference.setValue("Pary (2)");
+
         Button generateButton = new Button("Generuj Zespoły", e -> generateTeams());
         generateButton.addThemeVariants(com.vaadin.flow.component.button.ButtonVariant.LUMO_PRIMARY);
 
@@ -47,7 +55,10 @@ public class TeamGeneratorView extends VerticalLayout {
 
         configureGrid();
 
-        add(new H2("Formowanie Zespołów"), new HorizontalLayout(generateButton, statsButton), statsSpan, teamGrid);
+        add(new H2("Formowanie Zespołów"),
+                new HorizontalLayout(sizePreference, generateButton, statsButton),
+                statsSpan,
+                teamGrid);
     }
 
     private void showStats() {
@@ -58,60 +69,22 @@ public class TeamGeneratorView extends VerticalLayout {
 
     private void configureGrid() {
         teamGrid.removeAllColumns();
-        teamGrid.addColumn(t -> t.member1.getName()).setHeader("Student 1");
-        teamGrid.addColumn(t -> formatGrades(t.member1.getClassGrades())).setHeader("Oceny S1").setAutoWidth(true);
-        teamGrid.addColumn(t -> t.member2.getName()).setHeader("Partner");
-        teamGrid.addColumn(t -> t.member2 != null ? formatGrades(t.member2.getClassGrades()) : "-")
-                .setHeader("Oceny Partnera").setAutoWidth(true);
-    }
+        teamGrid.addColumn(t -> t.getMembers().stream()
+                .map(Student::getName)
+                .collect(Collectors.joining(", ")))
+                .setHeader("Członkowie Zespołu")
+                .setAutoWidth(true);
 
-    private String formatGrades(java.util.Map<UUID, Double> grades) {
-        if (grades == null)
-            return "";
-
-        var config = courseService.getCurrentConfig();
-        if (config == null)
-            return "";
-
-        // Map UUID to Topic Name for display
-        return grades.entrySet().stream()
-                .map(e -> {
-                    String topic = config.getClasses().stream()
-                            .filter(c -> c.getId().equals(e.getKey()))
-                            .findFirst()
-                            .map(c -> c.getTopic())
-                            .orElse("Unknown");
-                    return String.format("%s: %.1f", topic, e.getValue());
-                })
-                .collect(Collectors.joining(", "));
+        teamGrid.addColumn(t -> String.format("%.2f", t.getScore()))
+                .setHeader("Przewidywana Efektywność")
+                .setSortable(true);
     }
 
     private void generateTeams() {
+        boolean preferTrios = "Trójki (3)".equals(sizePreference.getValue());
         List<Student> allStudents = studentService.findAll();
-        List<Team> teams = new ArrayList<>();
-        Set<Student> matched = new HashSet<>();
 
-        for (Student s : allStudents) {
-            if (matched.contains(s))
-                continue;
-
-            Student partner = studentService.findPartner(s);
-
-            if (partner != null && !matched.contains(partner)) {
-                teams.add(new Team(s, partner));
-                matched.add(s);
-                matched.add(partner);
-            }
-        }
-
-        // Add unmatched
-        for (Student s : allStudents) {
-            if (!matched.contains(s)) {
-                Student placeholder = Student.builder().name("Brak Partnera").classGrades(null).build();
-                teams.add(new Team(s, placeholder));
-                matched.add(s);
-            }
-        }
+        List<Team> teams = teamFormationService.generateTeams(allStudents, preferTrios);
 
         teamGrid.setItems(teams);
         if (teams.isEmpty()) {
@@ -122,7 +95,7 @@ public class TeamGeneratorView extends VerticalLayout {
     @Data
     @AllArgsConstructor
     public static class Team {
-        private Student member1;
-        private Student member2;
+        private List<Student> members;
+        private double score;
     }
 }

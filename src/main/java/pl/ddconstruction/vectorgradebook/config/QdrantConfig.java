@@ -9,9 +9,11 @@ import org.springframework.context.annotation.Configuration;
 public class QdrantConfig {
 
     @Bean
-    public QdrantClient qdrantClient() {
+    public QdrantClient qdrantClient(
+            @org.springframework.beans.factory.annotation.Value("${qdrant.host:localhost}") String host,
+            @org.springframework.beans.factory.annotation.Value("${qdrant.port:6334}") int port) {
         return new QdrantClient(
-                QdrantGrpcClient.newBuilder("localhost", 6334, false)
+                QdrantGrpcClient.newBuilder(host, port, false)
                         .build());
     }
 

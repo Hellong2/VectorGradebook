@@ -47,6 +47,11 @@ public class VectorProcessingService {
                 .map(cls -> student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
                 .toList();
 
+        System.out.println("DEBUG: Config classes size: " + config.getClasses().size());
+        System.out.println("DEBUG: Sorted classes size: " + sortedClasses.size());
+        System.out.println("DEBUG: Generated vector size: " + vector.size());
+        System.out.println("DEBUG: Generated vector: " + vector);
+
         // Convert grades map (UUID -> Double) to Qdrant payload (String -> Double)
         Map<String, Value> gradesPayload = new HashMap<>();
         student.getClassGrades().forEach((k, v) -> gradesPayload.put(k.toString(), ValueFactory.value(v)));
@@ -165,16 +170,44 @@ public class VectorProcessingService {
         if (config == null)
             return "No config";
 
-        List<Class> sortedClasses = getSortedClasses(config);
-        int dimensions = sortedClasses.size();
+        Map<String, List<Double>> scoresByTag = new HashMap<>();
 
-        double[] averages = calculateAverageScoresPerDimension(points, dimensions);
-        int lowestScoreIndex = findIndexOfLowestAverage(averages);
+        // Process each student
+        for (RetrievedPoint point : points) {
+            Student student = mapPointToStudent(point);
+            Map<UUID, Double> grades = student.getClassGrades();
 
-        if (lowestScoreIndex >= sortedClasses.size())
-            return "Index Error";
+            // Map grades to tags
+            config.getClasses().forEach(cls -> {
+                Double val = grades.get(cls.getId());
+                if (val != null) {
+                    for (String tag : cls.getTags()) {
+                        scoresByTag.computeIfAbsent(tag, k -> new ArrayList<>()).add(val);
+                    }
+                }
+            });
+        }
 
-        return formatResult(sortedClasses.get(lowestScoreIndex), averages[lowestScoreIndex]);
+        if (scoresByTag.isEmpty()) {
+            return "No tags data";
+        }
+
+        // Calculate averages
+        String worstTag = null;
+        double minAvg = Double.MAX_VALUE;
+
+        for (Map.Entry<String, List<Double>> entry : scoresByTag.entrySet()) {
+            double avg = entry.getValue().stream().mapToDouble(d -> d).average().orElse(0.0);
+            if (avg < minAvg) {
+                minAvg = avg;
+                worstTag = entry.getKey();
+            }
+        }
+
+        if (worstTag == null)
+            return "Unknown";
+
+        return String.format("%s (Avg: %.2f)", worstTag, minAvg);
     }
 
     private List<RetrievedPoint> fetchPointsFromQdrant() throws ExecutionException, InterruptedException {
@@ -186,50 +219,6 @@ public class VectorProcessingService {
                         .build())
                 .get()
                 .getResultList();
-    }
-
-    private double[] calculateAverageScoresPerDimension(List<RetrievedPoint> points, int dimensions) {
-        double[] dimensionSums = sumVectorsByDimension(points, dimensions);
-        int pointCount = points.size();
-
-        return Arrays.stream(dimensionSums)
-                .map(sum -> sum / pointCount)
-                .toArray();
-    }
-
-    private double[] sumVectorsByDimension(List<RetrievedPoint> points, int dimensions) {
-        double[] sums = new double[dimensions];
-
-        for (RetrievedPoint point : points) {
-            List<Float> vector = point.getVectors().getVector().getDataList();
-
-            for (int dimension = 0; dimension < dimensions && dimension < vector.size(); dimension++) {
-                sums[dimension] += vector.get(dimension);
-            }
-        }
-
-        return sums;
-    }
-
-    private int findIndexOfLowestAverage(double[] averages) {
-        if (averages.length == 0)
-            return 0;
-        int lowestIndex = 0;
-        double lowestValue = averages[0];
-
-        for (int i = 1; i < averages.length; i++) {
-            if (averages[i] < lowestValue) {
-                lowestValue = averages[i];
-                lowestIndex = i;
-            }
-        }
-
-        return lowestIndex;
-    }
-
-    private String formatResult(Class cls, double averageScore) {
-        String formattedScore = String.format("%.2f", averageScore);
-        return String.format("%s (%s) - Avg: %s", cls.getTopic(), cls.getType(), formattedScore);
     }
 
     private List<Class> getSortedClasses(CourseConfig config) {

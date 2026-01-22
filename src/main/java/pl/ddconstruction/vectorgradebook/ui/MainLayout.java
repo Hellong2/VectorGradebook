@@ -33,6 +33,17 @@ public class MainLayout extends AppLayout {
 
         HorizontalLayout header = new HorizontalLayout(new DrawerToggle(), logo);
 
+        if (courseService.isConfigured() && courseService.getCurrentConfig() != null) {
+            String courseName = courseService.getCurrentConfig().getCourseName();
+            if (courseName != null && !courseName.isEmpty()) {
+                Span courseNameSpan = new Span(courseName);
+                courseNameSpan.getStyle().set("margin-left", "auto");
+                courseNameSpan.getStyle().set("margin-right", "1em");
+                courseNameSpan.getStyle().set("font-weight", "bold");
+                header.add(courseNameSpan);
+            }
+        }
+
         header.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
         header.setWidth("100%");
         header.addClassNames("py-0", "px-m");
