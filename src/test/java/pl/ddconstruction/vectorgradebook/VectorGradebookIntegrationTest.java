@@ -56,34 +56,34 @@ public class VectorGradebookIntegrationTest {
         CourseConfig config = new CourseConfig();
         config.setCourseName("Integration Test Course");
 
-        Set<String> tags = new HashSet<>(Arrays.asList("Java", "Spring", "Database"));
-        config.setAvailableTags(tags);
+        Set<String> skills = new HashSet<>(Arrays.asList("Java", "Spring", "Database"));
+        config.setAvailableSkills(skills);
 
         List<Class> classes = new ArrayList<>();
         // 5 Lectures
         for (int i = 1; i <= 5; i++) {
-            Set<String> classTags = new HashSet<>();
-            classTags.add(i % 2 == 0 ? "Spring" : "Java"); // Mix tags
+            Set<String> classSkills = new HashSet<>();
+            classSkills.add(i % 2 == 0 ? "Spring" : "Java"); // Mix skills
 
             classes.add(Class.builder()
                     .id(UUID.randomUUID())
                     .topic("Wykład " + i)
                     .date(LocalDate.now().plusDays(i))
                     .type(ClassType.LECTURE)
-                    .tags(classTags)
+                    .skills(classSkills)
                     .build());
         }
         // 5 Labs
         for (int i = 1; i <= 5; i++) {
-            Set<String> classTags = new HashSet<>();
-            classTags.add("Database");
+            Set<String> classSkills = new HashSet<>();
+            classSkills.add("Database");
 
             classes.add(Class.builder()
                     .id(UUID.randomUUID())
                     .topic("Laboratorium " + i)
                     .date(LocalDate.now().plusDays(5 + i))
                     .type(ClassType.LAB)
-                    .tags(classTags)
+                    .skills(classSkills)
                     .build());
         }
         config.setClasses(classes);
@@ -109,7 +109,7 @@ public class VectorGradebookIntegrationTest {
                 // Determine grade bias based on tag to force "Problematic Area"
                 // Let's make "Database" (Labs) hard -> low grades
                 double base = 3.0;
-                if (cls.getTags().contains("Database")) {
+                if (cls.getSkills().contains("Database")) {
                     base = 2.0; // Lower average for Database
                 } else {
                     base = 4.0; // Higher average for Java/Spring

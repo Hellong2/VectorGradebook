@@ -128,59 +128,6 @@ public class VectorProcessingService {
         }
     }
 
-    public io.qdrant.client.grpc.Points.ScoredPoint findComplementaryPartner(Student student) {
-        try {
-            CourseConfig config = courseService.getCurrentConfig();
-            if (config == null || config.getClasses().isEmpty()) {
-                throw new ConfigurationException("Course not configured");
-            }
-
-            List<Class> sortedClasses = getSortedClasses(config);
-            List<Float> vector = sortedClasses.stream()
-                    .map(cls -> student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
-                    .toList();
-
-            // Search for nearest neighbors (simplified partner logic)
-            List<io.qdrant.client.grpc.Points.ScoredPoint> points = qdrantClient.searchAsync(
-                    io.qdrant.client.grpc.Points.SearchPoints.newBuilder()
-                            .setCollectionName(COLLECTION_NAME)
-                            .addAllVector(vector)
-                            .setLimit(5)
-                            .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder()
-                                    .setEnable(true).build())
-                            .build())
-                    .get();
-
-            return points.stream()
-                    .filter(p -> !p.getId().getUuid().equals(student.getId().toString()))
-                    .findFirst()
-                    .orElse(null);
-
-        } catch (ExecutionException | InterruptedException e) {
-            throw new VectorStorageException("Failed to find partner", e);
-        }
-    }
-
-    private Student mapPointToStudent(RetrievedPoint point) {
-        UUID id = UUID.fromString(point.getId().getUuid());
-        String name = point.getPayloadMap().containsKey("name") ? point.getPayloadMap().get("name").getStringValue()
-                : "Unknown";
-
-        Map<UUID, Double> grades = new HashMap<>();
-
-        if (point.getPayloadMap().containsKey("grades")) {
-            Map<String, Value> gradesStruct = point.getPayloadMap()
-                    .get("grades").getStructValue().getFieldsMap();
-            gradesStruct.forEach((k, v) -> grades.put(UUID.fromString(k), v.getDoubleValue()));
-        }
-
-        return Student.builder()
-                .id(id)
-                .name(name)
-                .classGrades(grades)
-                .build();
-    }
-
     public String findProblematicAreas() {
         try {
             List<RetrievedPoint> points = fetchPointsFromQdrant();
@@ -194,44 +141,44 @@ public class VectorProcessingService {
             if (config == null)
                 throw new ConfigurationException("Configuration missing");
 
-            Map<String, List<Double>> scoresByTag = new HashMap<>();
+            Map<String, List<Double>> scoresBySkill = new HashMap<>();
 
             // Process each student
             for (RetrievedPoint point : points) {
                 Student student = mapPointToStudent(point);
                 Map<UUID, Double> grades = student.getClassGrades();
 
-                // Map grades to tags
+                // Map grades to skills
                 config.getClasses().forEach(cls -> {
                     Double val = grades.get(cls.getId());
                     if (val != null) {
-                        for (String tag : cls.getTags()) {
-                            scoresByTag.computeIfAbsent(tag, k -> new ArrayList<>()).add(val);
+                        for (String skill : cls.getSkills()) {
+                            scoresBySkill.computeIfAbsent(skill, k -> new ArrayList<>()).add(val);
                         }
                     }
                 });
             }
 
-            if (scoresByTag.isEmpty()) {
-                return "No tags data";
+            if (scoresBySkill.isEmpty()) {
+                return "No skills data";
             }
 
             // Calculate averages
-            String worstTag = null;
+            String worstSkill = null;
             double minAvg = Double.MAX_VALUE;
 
-            for (Map.Entry<String, List<Double>> entry : scoresByTag.entrySet()) {
+            for (Map.Entry<String, List<Double>> entry : scoresBySkill.entrySet()) {
                 double avg = entry.getValue().stream().mapToDouble(d -> d).average().orElse(0.0);
                 if (avg < minAvg) {
                     minAvg = avg;
-                    worstTag = entry.getKey();
+                    worstSkill = entry.getKey();
                 }
             }
 
-            if (worstTag == null)
+            if (worstSkill == null)
                 return "Unknown";
 
-            return String.format("%s (Avg: %.2f)", worstTag, minAvg);
+            return String.format("%s (Avg: %.2f)", worstSkill, minAvg);
         } catch (ExecutionException | InterruptedException e) {
             throw new VectorStorageException("Failed to analyze areas", e);
         }
@@ -254,5 +201,25 @@ public class VectorProcessingService {
                 .sorted(Comparator.comparing(Class::getDate)
                         .thenComparing(Class::getId))
                 .toList();
+    }
+
+    private Student mapPointToStudent(RetrievedPoint point) {
+        UUID id = UUID.fromString(point.getId().getUuid());
+        String name = point.getPayloadMap().containsKey("name") ? point.getPayloadMap().get("name").getStringValue()
+                : "Unknown";
+
+        Map<UUID, Double> grades = new HashMap<>();
+
+        if (point.getPayloadMap().containsKey("grades")) {
+            Map<String, Value> gradesStruct = point.getPayloadMap()
+                    .get("grades").getStructValue().getFieldsMap();
+            gradesStruct.forEach((k, v) -> grades.put(UUID.fromString(k), v.getDoubleValue()));
+        }
+
+        return Student.builder()
+                .id(id)
+                .name(name)
+                .classGrades(grades)
+                .build();
     }
 }

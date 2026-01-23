@@ -179,14 +179,14 @@ public class SetupWizardView extends VerticalLayout {
         contentLayout.removeAll();
         updateStepIndicator(2); // Still technically part of step 2 or could be 2.5
 
-        H4 stepTitle = new H4("Krok 2.5: Tagi (Obszary tematyczne)");
+        H4 stepTitle = new H4("Krok 2.5: Umiejętności (Obszary tematyczne)");
 
         Grid<String> tagsGrid = new Grid<>();
-        tagsGrid.addColumn(t -> t).setHeader("Tag");
-        tagsGrid.setItems(config.getAvailableTags());
+        tagsGrid.addColumn(t -> t).setHeader("Umiejętność");
+        tagsGrid.setItems(config.getAvailableSkills());
         tagsGrid.addComponentColumn(tag -> {
             Button remove = new Button(new Icon(VaadinIcon.TRASH), e -> {
-                config.getAvailableTags().remove(tag);
+                config.getAvailableSkills().remove(tag);
                 tagsGrid.getDataProvider().refreshAll();
             });
             remove.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
@@ -200,7 +200,7 @@ public class SetupWizardView extends VerticalLayout {
         tagField.setPlaceholder("Nowy Tag");
         Button addTagButton = new Button("Dodaj", e -> {
             if (!tagField.isEmpty()) {
-                config.getAvailableTags().add(tagField.getValue());
+                config.getAvailableSkills().add(tagField.getValue());
                 tagField.clear();
                 tagsGrid.getDataProvider().refreshAll();
             }
@@ -232,7 +232,7 @@ public class SetupWizardView extends VerticalLayout {
         classGrid.addColumn(Class::getTopic).setHeader("Temat").setAutoWidth(true);
         classGrid.addColumn(Class::getDate).setHeader("Data").setAutoWidth(true);
         classGrid.addColumn(aClass -> aClass.getType().getLabel()).setHeader("Typ").setAutoWidth(true);
-        classGrid.addColumn(aClass -> String.join(", ", aClass.getTags())).setHeader("Tagi");
+        classGrid.addColumn(aClass -> String.join(", ", aClass.getSkills())).setHeader("Umiejętności");
         classGrid.addComponentColumn(c -> {
             Button remove = new Button(new Icon(VaadinIcon.TRASH), e -> {
                 config.getClasses().remove(c);
@@ -285,8 +285,8 @@ public class SetupWizardView extends VerticalLayout {
         typeSelect.setWidthFull();
 
         com.vaadin.flow.component.combobox.MultiSelectComboBox<String> tagsSelect = new com.vaadin.flow.component.combobox.MultiSelectComboBox<>(
-                "Tagi");
-        tagsSelect.setItems(config.getAvailableTags());
+                "Umiejętności");
+        tagsSelect.setItems(config.getAvailableSkills());
         tagsSelect.setWidthFull();
 
         Button save = new Button("Dodaj", e -> {
@@ -299,7 +299,7 @@ public class SetupWizardView extends VerticalLayout {
                     .topic(topicField.getValue())
                     .date(datePicker.getValue())
                     .type(typeSelect.getValue())
-                    .tags(tagsSelect.getValue())
+                    .skills(tagsSelect.getValue())
                     .build();
             config.getClasses().add(newClass);
             grid.getDataProvider().refreshAll();

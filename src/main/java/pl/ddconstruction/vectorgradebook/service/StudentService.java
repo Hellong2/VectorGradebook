@@ -33,16 +33,6 @@ public class StudentService {
         return vectorService.getStudentById(id);
     }
 
-    public Student findPartner(Student student) {
-        var point = vectorService.findComplementaryPartner(student);
-        if (point == null)
-            return null;
-
-        // Extract UUID from point ID
-        UUID partnerId = UUID.fromString(point.getId().getUuid());
-        return findById(partnerId);
-    }
-
     public String getProblematicAreaStats() {
         return vectorService.findProblematicAreas();
     }

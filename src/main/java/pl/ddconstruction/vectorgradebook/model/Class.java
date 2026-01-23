@@ -18,5 +18,5 @@ public class Class {
     private LocalDate date;
     private ClassType type;
     @Builder.Default
-    private java.util.Set<String> tags = new java.util.HashSet<>();
+    private java.util.Set<String> skills = new java.util.HashSet<>();
 }

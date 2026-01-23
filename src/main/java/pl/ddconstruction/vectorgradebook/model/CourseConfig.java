@@ -19,5 +19,5 @@ public class CourseConfig {
     @Builder.Default
     private List<Class> classes = new ArrayList<>();
     @Builder.Default
-    private Set<String> availableTags = new HashSet<>();
+    private Set<String> availableSkills = new HashSet<>();
 }
