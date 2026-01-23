@@ -6,7 +6,6 @@ import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.grid.GridVariant;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
-import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.notification.Notification;
@@ -20,7 +19,7 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import pl.ddconstruction.vectorgradebook.model.Student;
+import pl.ddconstruction.vectorgradebook.model.entity.Student;
 import pl.ddconstruction.vectorgradebook.service.StudentService;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
 import pl.ddconstruction.vectorgradebook.service.TeamFormationService;
@@ -38,6 +37,8 @@ public class TeamGeneratorView extends VerticalLayout {
     private final Grid<Team> teamGrid = new Grid<>(Team.class);
     private final RadioButtonGroup<String> sizePreference = new RadioButtonGroup<>();
 
+    private java.util.UUID activeCourseId;
+
     public TeamGeneratorView(StudentService studentService,
             CourseService courseService,
             TeamFormationService teamFormationService) {
@@ -47,9 +48,14 @@ public class TeamGeneratorView extends VerticalLayout {
         setSizeFull();
         addClassNames("team-generator-view", LumoUtility.Padding.MEDIUM);
 
-        if (!courseService.isConfigured()) {
+        Object activeIdObj = com.vaadin.flow.server.VaadinSession.getCurrent().getAttribute("activeCourseId");
+        if (activeIdObj != null) {
+            this.activeCourseId = (java.util.UUID) activeIdObj;
+        }
+
+        if (this.activeCourseId == null) {
             Div emptyState = new Div();
-            emptyState.setText("Przedmiot nie jest skonfigurowany. Przejdź do konfiguracji.");
+            emptyState.setText("Wybierz kurs z menu głównego.");
             emptyState.addClassNames(LumoUtility.TextAlignment.CENTER, LumoUtility.TextColor.SECONDARY);
             add(emptyState);
             setAlignItems(Alignment.CENTER);
@@ -106,7 +112,10 @@ public class TeamGeneratorView extends VerticalLayout {
 
     private void generateTeams() {
         boolean preferTrios = "Trójki (3)".equals(sizePreference.getValue());
-        List<Student> allStudents = studentService.findAll();
+        List<Student> allStudents = java.util.Collections.emptyList();
+        if (activeCourseId != null) {
+            allStudents = studentService.findAllByCourseId(activeCourseId);
+        }
 
         if (allStudents.isEmpty()) {
             Notification.show("Brak studentów do utworzenia zespołów.")
@@ -114,7 +123,7 @@ public class TeamGeneratorView extends VerticalLayout {
             return;
         }
 
-        List<Team> teams = teamFormationService.generateTeams(allStudents, preferTrios);
+        List<Team> teams = teamFormationService.generateTeams(allStudents, preferTrios, activeCourseId);
 
         teamGrid.setItems(teams);
         if (teams.isEmpty()) {

@@ -10,14 +10,15 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import pl.ddconstruction.vectorgradebook.model.Class;
+import pl.ddconstruction.vectorgradebook.dto.ClassDTO;
+import pl.ddconstruction.vectorgradebook.dto.SkillDTO;
 import pl.ddconstruction.vectorgradebook.model.ClassType;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
-import pl.ddconstruction.vectorgradebook.model.Student;
+import pl.ddconstruction.vectorgradebook.model.entity.Student;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
+import pl.ddconstruction.vectorgradebook.service.StudentService;
 import pl.ddconstruction.vectorgradebook.service.TeamFormationService;
 import pl.ddconstruction.vectorgradebook.service.VectorProcessingService;
-import pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView;
 import pl.ddconstruction.vectorgradebook.ui.TeamGeneratorView.Team;
 
 import java.time.LocalDate;
@@ -48,7 +49,12 @@ public class VectorGradebookIntegrationTest {
     private CourseService courseService;
 
     @Autowired
+    private StudentService studentService;
+
+    @Autowired
     private TeamFormationService teamFormationService;
+
+    private UUID courseId;
 
     @BeforeEach
     void setUp() throws ExecutionException, InterruptedException {
@@ -59,37 +65,35 @@ public class VectorGradebookIntegrationTest {
         Set<String> skills = new HashSet<>(Arrays.asList("Java", "Spring", "Database"));
         config.setAvailableSkills(skills);
 
-        List<Class> classes = new ArrayList<>();
+        List<ClassDTO> classes = new ArrayList<>();
         // 5 Lectures
         for (int i = 1; i <= 5; i++) {
-            Set<String> classSkills = new HashSet<>();
-            classSkills.add(i % 2 == 0 ? "Spring" : "Java"); // Mix skills
+            Set<SkillDTO> classSkills = new HashSet<>();
+            classSkills.add(new SkillDTO(null, i % 2 == 0 ? "Spring" : "Java"));
 
-            classes.add(Class.builder()
-                    .id(UUID.randomUUID())
-                    .topic("Wykład " + i)
-                    .date(LocalDate.now().plusDays(i))
-                    .type(ClassType.LECTURE)
-                    .skills(classSkills)
-                    .build());
+            classes.add(new ClassDTO(
+                    null,
+                    "Wykład " + i,
+                    LocalDate.now().plusDays(i),
+                    ClassType.LECTURE,
+                    classSkills));
         }
         // 5 Labs
         for (int i = 1; i <= 5; i++) {
-            Set<String> classSkills = new HashSet<>();
-            classSkills.add("Database");
+            Set<SkillDTO> classSkills = new HashSet<>();
+            classSkills.add(new SkillDTO(null, "Database"));
 
-            classes.add(Class.builder()
-                    .id(UUID.randomUUID())
-                    .topic("Laboratorium " + i)
-                    .date(LocalDate.now().plusDays(5 + i))
-                    .type(ClassType.LAB)
-                    .skills(classSkills)
-                    .build());
+            classes.add(new ClassDTO(
+                    null,
+                    "Laboratorium " + i,
+                    LocalDate.now().plusDays(5 + i),
+                    ClassType.LAB,
+                    classSkills));
         }
         config.setClasses(classes);
-        courseService.saveConfig(config);
+        courseId = courseService.saveConfig(config);
 
-        vectorProcessingService.recreateCollection(classes.size());
+        vectorProcessingService.recreateCollection(courseId, classes.size());
     }
 
     @Test
@@ -97,19 +101,18 @@ public class VectorGradebookIntegrationTest {
         // 2. Generate 15 Students with random grades
         List<Student> students = new ArrayList<>();
         Random random = new Random();
-        CourseConfig config = courseService.getCurrentConfig();
+        CourseConfig config = courseService.getCourseConfig(courseId);
 
         for (int i = 1; i <= 15; i++) {
             Student student = new Student();
-            student.setId(UUID.randomUUID());
             student.setName("Student " + i);
             Map<UUID, Double> grades = new HashMap<>();
 
-            for (Class cls : config.getClasses()) {
+            for (ClassDTO cls : config.getClasses()) {
                 // Determine grade bias based on tag to force "Problematic Area"
                 // Let's make "Database" (Labs) hard -> low grades
                 double base = 3.0;
-                if (cls.getSkills().contains("Database")) {
+                if (cls.skills().stream().anyMatch(s -> s.name().equals("Database"))) {
                     base = 2.0; // Lower average for Database
                 } else {
                     base = 4.0; // Higher average for Java/Spring
@@ -121,11 +124,15 @@ public class VectorGradebookIntegrationTest {
                 if (grade > 5.0)
                     grade = 5.0;
 
-                grades.put(cls.getId(), grade);
+                grades.put(cls.id(), grade);
             }
             student.setClassGrades(grades);
-            students.add(student);
-            vectorProcessingService.updateStudentVector(student);
+            // fetch all later
+            assertNull(student.getId(), "Student ID must be null before save");
+            studentService.save(student, courseId);
+            students.add(student); // Keep strictly for local verifictions if needed, but ID is now set
+            // vectorProcessingService.updateStudentVector(student); // Handled by
+            // StudentService
         }
 
         // Wait for indexing (simple sleep or query loop)
@@ -136,7 +143,7 @@ public class VectorGradebookIntegrationTest {
 
         // Scenario 2: Problematic Area Identification
         // Should be "Database" because we biased the grades lower
-        String problemArea = vectorProcessingService.findProblematicAreas();
+        String problemArea = vectorProcessingService.findProblematicAreas(courseId, config);
         System.out.println("Problematic Area: " + problemArea);
         assertNotNull(problemArea);
         assertTrue(problemArea.contains("Database"), "Problematic area should be Database");
@@ -153,7 +160,7 @@ public class VectorGradebookIntegrationTest {
     private void verifyTeamFormation(List<Student> students) {
         // Test Prefer 2
         List<Team> pairs = teamFormationService
-                .generateTeams(students, false);
+                .generateTeams(students, false, courseId);
         System.out.println("Generated Pair Teams count: " + pairs.size());
         assertEquals(15, countStudentsInTeams(pairs), "All students should be assigned in pairs preference");
 
@@ -166,7 +173,7 @@ public class VectorGradebookIntegrationTest {
 
         // Test Prefer 3
         List<Team> trios = teamFormationService
-                .generateTeams(students, true);
+                .generateTeams(students, true, courseId);
         System.out.println("Generated Trio Teams count: " + trios.size());
         assertEquals(15, countStudentsInTeams(trios), "All students should be assigned in trios preference");
         // 15 is divisible by 3, so should be exactly 5 trios.

@@ -25,7 +25,7 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.theme.lumo.LumoUtility;
 
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
-import pl.ddconstruction.vectorgradebook.model.Student;
+import pl.ddconstruction.vectorgradebook.model.entity.Student;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
 import pl.ddconstruction.vectorgradebook.service.StudentService;
 
@@ -38,23 +38,35 @@ import java.util.UUID;
 public class GradeBookView extends VerticalLayout {
 
     private final StudentService studentService;
+    private final CourseService courseService;
     private final Grid<Student> grid = new Grid<>(Student.class);
     private GridListDataView<Student> dataView;
 
     // Config needed for dynamic columns
     private CourseConfig config;
+    private UUID activeCourseId;
+
+    private final Div statsCard = new Div();
+    private final Span statsSpan = new Span();
 
     public GradeBookView(StudentService studentService, CourseService courseService) {
         this.studentService = studentService;
-
-        this.config = courseService.getCurrentConfig();
+        this.courseService = courseService;
 
         setSizeFull();
         addClassNames("gradebook-view", LumoUtility.Padding.MEDIUM);
 
-        if (!courseService.isConfigured()) {
+        // Retrieve state from Session
+        if (com.vaadin.flow.server.VaadinSession.getCurrent().getAttribute("activeCourseId") != null) {
+            this.activeCourseId = (UUID) com.vaadin.flow.server.VaadinSession.getCurrent()
+                    .getAttribute("activeCourseId");
+            // Fetch config for this ID to render columns
+            this.config = courseService.getCourseConfig(activeCourseId);
+        }
+
+        if (this.activeCourseId == null || this.config == null) {
             Div emptyState = new Div();
-            emptyState.setText("Przedmiot nie jest skonfigurowany. Przejdź do konfiguracji.");
+            emptyState.setText("Wybierz kurs z menu głównego.");
             emptyState.addClassNames(LumoUtility.TextAlignment.CENTER, LumoUtility.TextColor.SECONDARY);
             add(emptyState);
             setAlignItems(Alignment.CENTER);
@@ -78,9 +90,6 @@ public class GradeBookView extends VerticalLayout {
 
         updateList();
     }
-
-    private final Div statsCard = new Div();
-    private final Span statsSpan = new Span();
 
     private Div createStatsCard() {
         statsCard.setVisible(false);
@@ -130,7 +139,7 @@ public class GradeBookView extends VerticalLayout {
                 return;
             }
 
-            String stats = studentService.getProblematicAreaStats();
+            String stats = studentService.getProblematicAreaStats(activeCourseId);
             statsSpan.removeAll();
 
             Icon icon = VaadinIcon.WARNING.create();
@@ -158,15 +167,15 @@ public class GradeBookView extends VerticalLayout {
 
         // Subject Grade Column
         grid.addColumn(student -> {
-            return String.format("%.2f", studentService.calculateSubjectGrade(student));
+            return String.format("%.2f", studentService.calculateSubjectGrade(student, config));
         }).setHeader("Ocena Końcowa").setSortable(true).setAutoWidth(true).setFlexGrow(0);
 
         // Dynamic Columns for each Class
         config.getClasses().forEach(cls -> {
             grid.addColumn(student -> {
-                Double grade = student.getClassGrades().get(cls.getId());
+                Double grade = student.getClassGrades().get(cls.id());
                 return grade != null ? String.valueOf(grade) : "-";
-            }).setHeader(cls.getTopic() + " (" + cls.getType().getLabel() + ")").setAutoWidth(true);
+            }).setHeader(cls.topic() + " (" + cls.type().getLabel() + ")").setAutoWidth(true);
         });
 
         // Actions Column
@@ -204,7 +213,7 @@ public class GradeBookView extends VerticalLayout {
         gradesLayout.setSpacing(true);
 
         config.getClasses().forEach(cls -> {
-            NumberField field = new NumberField(cls.getTopic() + " (" + cls.getType().getLabel() + ")");
+            NumberField field = new NumberField(cls.topic() + " (" + cls.type().getLabel() + ")");
             field.setWidthFull();
             field.setMin(2.0);
             field.setMax(5.0);
@@ -212,12 +221,12 @@ public class GradeBookView extends VerticalLayout {
             field.setStepButtonsVisible(true);
 
             if (studentToEdit != null) {
-                Double g = studentToEdit.getClassGrades().get(cls.getId());
+                Double g = studentToEdit.getClassGrades().get(cls.id());
                 if (g != null)
                     field.setValue(g);
             }
 
-            gradeFields.put(cls.getId(), field);
+            gradeFields.put(cls.id(), field);
             gradesLayout.add(field);
         });
 
@@ -250,7 +259,7 @@ public class GradeBookView extends VerticalLayout {
                         .build();
             }
 
-            studentService.save(student);
+            studentService.save(student, activeCourseId);
             updateList();
             dialog.close();
             Notification.show("Zapisano!").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
@@ -269,6 +278,10 @@ public class GradeBookView extends VerticalLayout {
     }
 
     private void updateList() {
-        dataView = grid.setItems(studentService.findAll());
+        if (activeCourseId != null) {
+            dataView = grid.setItems(studentService.findAllByCourseId(activeCourseId));
+        } else {
+            dataView = grid.setItems(java.util.List.of());
+        }
     }
 }

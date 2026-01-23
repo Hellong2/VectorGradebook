@@ -21,32 +21,31 @@ import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.component.upload.Upload;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import com.vaadin.flow.server.streams.UploadHandler;
 import com.vaadin.flow.theme.lumo.LumoUtility;
-import pl.ddconstruction.vectorgradebook.model.Class;
+import pl.ddconstruction.vectorgradebook.dto.ClassDTO;
+import pl.ddconstruction.vectorgradebook.dto.SkillDTO;
 import pl.ddconstruction.vectorgradebook.model.ClassType;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
-import pl.ddconstruction.vectorgradebook.service.VectorProcessingService;
+import pl.ddconstruction.vectorgradebook.service.CourseService;
 
-import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Route("setup")
 @PageTitle("Konfiguracja Przedmiotu")
 public class SetupWizardView extends VerticalLayout {
 
     private final CourseService courseService;
-    private final VectorProcessingService vectorProcessingService;
     private final VerticalLayout contentLayout = new VerticalLayout();
     private final Div stepIndicator = new Div();
     private CourseConfig config = new CourseConfig();
 
-    public SetupWizardView(CourseService courseService, VectorProcessingService vectorProcessingService) {
+    public SetupWizardView(CourseService courseService) {
         this.courseService = courseService;
-        this.vectorProcessingService = vectorProcessingService;
 
         setSizeFull();
         setAlignItems(Alignment.CENTER);
@@ -92,22 +91,32 @@ public class SetupWizardView extends VerticalLayout {
         H4 stepTitle = new H4("Krok 1: Rozpocznij");
         stepTitle.addClassName(LumoUtility.TextAlignment.CENTER);
 
-        UploadHandler handler = UploadHandler.toTempFile((event, file) -> {
-            try (InputStream inputStream = new FileInputStream(file)) {
+        com.vaadin.flow.component.upload.receivers.MemoryBuffer buffer = new com.vaadin.flow.component.upload.receivers.MemoryBuffer();
+        Upload upload = new Upload(buffer);
+        upload.addSucceededListener(event -> {
+            try (InputStream inputStream = buffer.getInputStream()) {
                 ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
                 CourseConfig importedConfig = mapper.readValue(inputStream, CourseConfig.class);
 
                 if (importedConfig.getClasses() != null) {
+                    List<ClassDTO> sanitized = new ArrayList<>();
                     importedConfig.getClasses().forEach(c -> {
-                        if (c.getId() == null) {
-                            c.setId(UUID.randomUUID());
+                        if (c.id() == null) {
+                            sanitized.add(new ClassDTO(
+                                    null,
+                                    c.topic(),
+                                    c.date(),
+                                    c.type(),
+                                    c.skills()));
+                        } else {
+                            sanitized.add(c);
                         }
                     });
+                    importedConfig.setClasses(sanitized);
                 }
 
                 getUI().ifPresent(ui -> ui.access(() -> {
                     courseService.saveConfig(importedConfig);
-                    vectorProcessingService.recreateCollection(importedConfig.getClasses().size());
                     Notification.show("Zaimportowano konfigurację!").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
                     navigateToMain();
                 }));
@@ -116,8 +125,6 @@ public class SetupWizardView extends VerticalLayout {
                         .addThemeVariants(NotificationVariant.LUMO_ERROR)));
             }
         });
-
-        Upload upload = new Upload(handler);
         upload.setAcceptedFileTypes(".json");
         upload.setWidthFull();
 
@@ -208,7 +215,6 @@ public class SetupWizardView extends VerticalLayout {
 
         HorizontalLayout addTagLayout = new HorizontalLayout(tagField, addTagButton);
         addTagLayout.setAlignItems(Alignment.BASELINE);
-
         Button nextButton = new Button("Dalej", new Icon(VaadinIcon.ARROW_RIGHT), e -> showStep3());
         nextButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         nextButton.setIconAfterText(true);
@@ -226,13 +232,14 @@ public class SetupWizardView extends VerticalLayout {
 
         H4 stepTitle = new H4("Krok 3: Harmonogram Zajęć");
 
-        Grid<Class> classGrid = new Grid<>(Class.class);
+        Grid<ClassDTO> classGrid = new Grid<>(ClassDTO.class);
         classGrid.setItems(config.getClasses());
         classGrid.removeAllColumns();
-        classGrid.addColumn(Class::getTopic).setHeader("Temat").setAutoWidth(true);
-        classGrid.addColumn(Class::getDate).setHeader("Data").setAutoWidth(true);
-        classGrid.addColumn(aClass -> aClass.getType().getLabel()).setHeader("Typ").setAutoWidth(true);
-        classGrid.addColumn(aClass -> String.join(", ", aClass.getSkills())).setHeader("Umiejętności");
+        classGrid.addColumn(ClassDTO::topic).setHeader("Temat").setAutoWidth(true);
+        classGrid.addColumn(ClassDTO::date).setHeader("Data").setAutoWidth(true);
+        classGrid.addColumn(aClass -> aClass.type().getLabel()).setHeader("Typ").setAutoWidth(true);
+        classGrid.addColumn(aClass -> aClass.skills().stream().map(SkillDTO::name).collect(Collectors.joining(", ")))
+                .setHeader("Umiejętności");
         classGrid.addComponentColumn(c -> {
             Button remove = new Button(new Icon(VaadinIcon.TRASH), e -> {
                 config.getClasses().remove(c);
@@ -255,7 +262,6 @@ public class SetupWizardView extends VerticalLayout {
                 return;
             }
             courseService.saveConfig(config);
-            vectorProcessingService.recreateCollection(config.getClasses().size());
             Notification.show("Konfiguracja zapisana!").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
             navigateToMain();
         });
@@ -265,13 +271,13 @@ public class SetupWizardView extends VerticalLayout {
         toolbar.setWidthFull();
 
         HorizontalLayout actions = new HorizontalLayout(finishButton);
-        actions.setWidthFull();
+
         actions.setJustifyContentMode(JustifyContentMode.END);
 
         contentLayout.add(stepTitle, toolbar, classGrid, actions);
     }
 
-    private void openAddClassDialog(Grid<Class> grid) {
+    private void openAddClassDialog(Grid<ClassDTO> grid) {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Dodaj Zajęcia");
 
@@ -294,13 +300,13 @@ public class SetupWizardView extends VerticalLayout {
                 Notification.show("Wypełnij wszystkie pola");
                 return;
             }
-            Class newClass = Class.builder()
-                    .id(UUID.randomUUID())
-                    .topic(topicField.getValue())
-                    .date(datePicker.getValue())
-                    .type(typeSelect.getValue())
-                    .skills(tagsSelect.getValue())
-                    .build();
+            ClassDTO newClass = new ClassDTO(
+                    null,
+                    topicField.getValue(),
+                    datePicker.getValue(),
+                    typeSelect.getValue(),
+                    tagsSelect.getValue().stream().map(name -> new SkillDTO(UUID.randomUUID(), name))
+                            .collect(Collectors.toSet()));
             config.getClasses().add(newClass);
             grid.getDataProvider().refreshAll();
             dialog.close();

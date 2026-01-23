@@ -4,6 +4,7 @@ import com.vaadin.flow.component.applayout.AppLayout;
 import com.vaadin.flow.component.applayout.DrawerToggle;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dialog.Dialog;
 
 import com.vaadin.flow.component.html.H1;
@@ -19,6 +20,7 @@ import com.vaadin.flow.component.sidenav.SideNav;
 import com.vaadin.flow.component.sidenav.SideNavItem;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.theme.lumo.LumoUtility;
+import pl.ddconstruction.vectorgradebook.model.entity.Course;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
 
 public class MainLayout extends AppLayout {
@@ -43,15 +45,55 @@ public class MainLayout extends AppLayout {
 
         HorizontalLayout header = new HorizontalLayout(toggle, viewTitle);
 
-        if (courseService.isConfigured() && courseService.getCurrentConfig() != null) {
-            String courseName = courseService.getCurrentConfig().getCourseName();
-            if (courseName != null && !courseName.isEmpty()) {
-                Span courseBadge = new Span(courseName);
-                courseBadge.getElement().getThemeList().add("badge contrast");
-                courseBadge.addClassNames(LumoUtility.Margin.Start.AUTO, LumoUtility.Margin.End.MEDIUM);
-                header.add(courseBadge);
+        // Course Selector
+        ComboBox<Course> courseSelector = new ComboBox<>();
+        courseSelector.setItems(courseService.getAllCourses());
+        courseSelector.setItemLabelGenerator(Course::getName);
+        courseSelector.setPlaceholder("Wybierz kurs...");
+        courseSelector.addClassNames(LumoUtility.Margin.Start.AUTO);
+
+        if (!courseService.getAllCourses().isEmpty()) {
+            Course current = null;
+            Object activeIdObj = com.vaadin.flow.server.VaadinSession.getCurrent().getAttribute("activeCourseId");
+            if (activeIdObj != null) {
+                java.util.UUID activeId = (java.util.UUID) activeIdObj;
+                current = courseService.getAllCourses().stream()
+                        .filter(c -> c.getId().equals(activeId))
+                        .findFirst()
+                        .orElse(null);
+            }
+
+            // Auto-select first if nothing selected but courses exist
+            if (current == null && !courseService.getAllCourses().isEmpty()) {
+                current = courseService.getAllCourses().get(0);
+                com.vaadin.flow.server.VaadinSession.getCurrent().setAttribute("activeCourseId", current.getId());
+            }
+
+            if (current != null) {
+                courseSelector.setValue(current);
             }
         }
+
+        courseSelector.addValueChangeListener(event -> {
+            if (event.getValue() != null) {
+                // courseService.setActiveCourse(event.getValue().getId()); // Removed stateful
+                // call
+                com.vaadin.flow.server.VaadinSession.getCurrent().setAttribute("activeCourseId",
+                        event.getValue().getId());
+                getUI().ifPresent(ui -> ui.getPage().reload());
+            }
+        });
+
+        Button addCourseBtn = new Button(new Icon(VaadinIcon.PLUS));
+        addCourseBtn.addThemeVariants(ButtonVariant.LUMO_ICON, ButtonVariant.LUMO_TERTIARY);
+        addCourseBtn.setTooltipText("Dodaj nowy kurs");
+        addCourseBtn.addClickListener(e -> {
+            // courseService.clearCurrentConfig(); // Removed stateful call
+            com.vaadin.flow.server.VaadinSession.getCurrent().setAttribute("activeCourseId", null);
+            getUI().ifPresent(ui -> ui.navigate(SetupWizardView.class));
+        });
+
+        header.add(courseSelector, addCourseBtn);
 
         header.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
         header.setWidthFull();
@@ -77,7 +119,11 @@ public class MainLayout extends AppLayout {
     private SideNav createNavigation() {
         SideNav nav = new SideNav();
 
-        if (courseService.isConfigured()) {
+        // Check session for active course
+        boolean hasActiveCourse = com.vaadin.flow.server.VaadinSession.getCurrent()
+                .getAttribute("activeCourseId") != null;
+
+        if (hasActiveCourse) {
             nav.addItem(new SideNavItem("Dziennik Ocen", GradeBookView.class, VaadinIcon.TABLE.create()));
             nav.addItem(new SideNavItem("Generator Zespołów", TeamGeneratorView.class, VaadinIcon.USERS.create()));
         } else {
@@ -91,14 +137,62 @@ public class MainLayout extends AppLayout {
         com.vaadin.flow.component.html.Footer layout = new com.vaadin.flow.component.html.Footer();
         layout.addClassNames(LumoUtility.Padding.MEDIUM);
 
-        if (courseService.isConfigured()) {
+        boolean hasActiveCourse = com.vaadin.flow.server.VaadinSession.getCurrent()
+                .getAttribute("activeCourseId") != null;
+
+        if (hasActiveCourse) {
+            // Export button
+            Button exportBtn = new Button("Eksportuj Konfigurację", new Icon(VaadinIcon.DOWNLOAD),
+                    e -> exportCourseConfig());
+            exportBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+            exportBtn.setWidthFull();
+
             Button resetBtn = new Button("Resetuj Dane", new Icon(VaadinIcon.TRASH), e -> showResetConfirmation());
             resetBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_ERROR);
             resetBtn.setWidthFull();
-            layout.add(resetBtn);
+
+            layout.add(exportBtn, resetBtn);
         }
 
         return layout;
+    }
+
+    private void exportCourseConfig() {
+        try {
+            // Get all courses and let user pick if multiple, or use current
+            var courses = courseService.getAllCourses();
+            if (courses.isEmpty()) {
+                com.vaadin.flow.component.notification.Notification.show("Brak kursów do eksportu")
+                        .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+                return;
+            }
+
+            // For now, export the first course (or current config)
+            var courseId = courses.get(0).getId();
+            var exportConfig = courseService.getExportConfig(courseId);
+
+            String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(exportConfig);
+
+            // Use JavaScript to trigger download
+            getElement().executeJs(
+                    "const blob = new Blob([$0], { type: 'application/json' });" +
+                            "const url = URL.createObjectURL(blob);" +
+                            "const a = document.createElement('a');" +
+                            "a.href = url;" +
+                            "a.download = 'course_config.json';" +
+                            "a.click();" +
+                            "URL.revokeObjectURL(url);",
+                    json);
+
+            com.vaadin.flow.component.notification.Notification.show("Konfiguracja wyeksportowana!")
+                    .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_SUCCESS);
+        } catch (Exception ex) {
+            com.vaadin.flow.component.notification.Notification.show("Błąd eksportu: " + ex.getMessage())
+                    .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+        }
     }
 
     @Override

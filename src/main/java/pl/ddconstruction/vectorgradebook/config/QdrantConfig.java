@@ -17,7 +17,4 @@ public class QdrantConfig {
                 QdrantGrpcClient.newBuilder(host, port, false)
                         .build());
     }
-
-    // Collection initialization is now handled dynamically in
-    // VectorProcessingService
 }

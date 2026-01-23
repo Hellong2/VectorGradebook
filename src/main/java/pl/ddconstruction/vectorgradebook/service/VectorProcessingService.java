@@ -12,13 +12,14 @@ import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import pl.ddconstruction.vectorgradebook.dto.ClassDTO;
+import pl.ddconstruction.vectorgradebook.dto.SkillDTO;
 import pl.ddconstruction.vectorgradebook.exception.ConfigurationException;
 import pl.ddconstruction.vectorgradebook.exception.StudentNotFoundException;
 import pl.ddconstruction.vectorgradebook.exception.VectorGradebookException;
 import pl.ddconstruction.vectorgradebook.exception.VectorStorageException;
-import pl.ddconstruction.vectorgradebook.model.Class;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
-import pl.ddconstruction.vectorgradebook.model.Student;
+import pl.ddconstruction.vectorgradebook.model.entity.Student;
 
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -30,22 +31,23 @@ import static io.qdrant.client.PointIdFactory.id;
 public class VectorProcessingService {
 
     private final QdrantClient qdrantClient;
-    private final CourseService courseService;
-    private static final String COLLECTION_NAME = "students";
     private static final int MAX_POINTS_TO_ANALYZE = 100;
 
-    public void updateStudentVector(Student student) {
-        CourseConfig config = courseService.getCurrentConfig();
+    private String getCollectionName(UUID courseId) {
+        return "course_" + courseId.toString();
+    }
+
+    public void updateStudentVector(Student student, UUID courseId, CourseConfig config) {
         if (config == null || config.getClasses().isEmpty()) {
             throw new ConfigurationException("Course not configured");
         }
 
         // Sort classes to ensure consistent vector dimension order
-        List<Class> sortedClasses = getSortedClasses(config);
+        List<ClassDTO> sortedClasses = getSortedClasses(config);
 
         // Convert grades to float vector based on sorted classes
         List<Float> vector = sortedClasses.stream()
-                .map(cls -> student.getClassGrades().getOrDefault(cls.getId(), 0.0).floatValue())
+                .map(cls -> student.getClassGrades().getOrDefault(cls.id(), 0.0).floatValue())
                 .toList();
 
         // Convert grades map (UUID -> Double) to Qdrant payload (String -> Double)
@@ -60,59 +62,54 @@ public class VectorProcessingService {
                 .build();
 
         try {
-            qdrantClient.upsertAsync(COLLECTION_NAME, List.of(point)).get();
+            qdrantClient.upsertAsync(getCollectionName(courseId), List.of(point)).get();
         } catch (ExecutionException | InterruptedException e) {
             throw new VectorStorageException(
                     "Failed to save student vector", e);
         }
     }
 
-    public List<Student> getAllStudents() {
+    public void recreateCollection(UUID courseId, int dimension) {
+        String collectionName = getCollectionName(courseId);
         try {
-            List<RetrievedPoint> points = fetchPointsFromQdrant();
-            return points.stream()
-                    .map(this::mapPointToStudent)
-                    .toList();
-        } catch (ExecutionException | InterruptedException e) {
-            throw new VectorStorageException("Failed to fetch students", e);
-        }
-    }
-
-    public void recreateCollection(int dimension) {
-        try {
-            qdrantClient.deleteCollectionAsync(COLLECTION_NAME).get();
-            System.out.println("Collection 'students' deleted.");
+            qdrantClient.deleteCollectionAsync(collectionName).get();
+            System.out.println("Collection '" + collectionName + "' deleted.");
         } catch (Exception e) {
             System.out.println("Collection deletion skipped (likely didn't exist): " + e.getMessage());
         }
 
         try {
             qdrantClient.createCollectionAsync(
-                    COLLECTION_NAME,
+                    collectionName,
                     VectorParams.newBuilder()
                             .setSize(dimension)
                             .setDistance(Distance.Cosine)
                             .build())
                     .get();
-            System.out.println("Collection 'students' created with dimension: " + dimension);
+            System.out.println("Collection '" + collectionName + "' created with dimension: " + dimension);
         } catch (Exception e) {
             throw new VectorStorageException("Failed to create collection",
                     e);
         }
     }
 
-    public void deleteStudent(UUID id) {
-        try {
-            qdrantClient.deleteAsync(COLLECTION_NAME, List.of(id(id))).get();
-        } catch (ExecutionException | InterruptedException e) {
-            throw new VectorStorageException("Failed to delete student", e);
+    public void deleteStudent(UUID id, List<UUID> courseIds) {
+        for (UUID courseId : courseIds) {
+            try {
+                qdrantClient.deleteAsync(getCollectionName(courseId), List.of(id(id))).get();
+            } catch (ExecutionException | InterruptedException e) {
+                // Log but continue? Or throw? prefer logging as one failure shouldn't block
+                // others
+                System.err
+                        .println("Failed to delete student " + id + " from course " + courseId + ": " + e.getMessage());
+            }
         }
     }
 
-    public Student getStudentById(UUID id) {
+    public Student getStudentById(UUID id, UUID courseId) {
         try {
             List<RetrievedPoint> points = qdrantClient.retrieveAsync(
-                    COLLECTION_NAME,
+                    getCollectionName(courseId),
                     List.of(id(id)),
                     true,
                     true,
@@ -121,23 +118,22 @@ public class VectorProcessingService {
             if (points.isEmpty()) {
                 throw new StudentNotFoundException(id);
             }
-            return mapPointToStudent(points.get(0));
+            return mapPointToStudent(points.getFirst());
         } catch (ExecutionException | InterruptedException e) {
             throw new VectorStorageException("Failed to retrieve student",
                     e);
         }
     }
 
-    public String findProblematicAreas() {
+    public String findProblematicAreas(UUID courseId, CourseConfig config) {
         try {
-            List<RetrievedPoint> points = fetchPointsFromQdrant();
+            List<RetrievedPoint> points = fetchPointsFromQdrant(getCollectionName(courseId));
 
             if (points.isEmpty()) {
                 throw new VectorGradebookException(
                         "No data available for analysis");
             }
 
-            CourseConfig config = courseService.getCurrentConfig();
             if (config == null)
                 throw new ConfigurationException("Configuration missing");
 
@@ -150,10 +146,10 @@ public class VectorProcessingService {
 
                 // Map grades to skills
                 config.getClasses().forEach(cls -> {
-                    Double val = grades.get(cls.getId());
+                    Double val = grades.get(cls.id());
                     if (val != null) {
-                        for (String skill : cls.getSkills()) {
-                            scoresBySkill.computeIfAbsent(skill, k -> new ArrayList<>()).add(val);
+                        for (SkillDTO skill : cls.skills()) {
+                            scoresBySkill.computeIfAbsent(skill.name(), k -> new ArrayList<>()).add(val);
                         }
                     }
                 });
@@ -184,10 +180,11 @@ public class VectorProcessingService {
         }
     }
 
-    private List<RetrievedPoint> fetchPointsFromQdrant() throws ExecutionException, InterruptedException {
+    private List<RetrievedPoint> fetchPointsFromQdrant(String collectionName)
+            throws ExecutionException, InterruptedException {
         return qdrantClient.scrollAsync(
                 ScrollPoints.newBuilder()
-                        .setCollectionName(COLLECTION_NAME)
+                        .setCollectionName(collectionName)
                         .setLimit(MAX_POINTS_TO_ANALYZE)
                         .setWithVectors(WithVectorsSelector.newBuilder().setEnable(true).build())
                         .build())
@@ -195,11 +192,11 @@ public class VectorProcessingService {
                 .getResultList();
     }
 
-    private List<Class> getSortedClasses(CourseConfig config) {
+    private List<ClassDTO> getSortedClasses(CourseConfig config) {
         // Sort by Date, then ID to ensure deterministic order
         return config.getClasses().stream()
-                .sorted(Comparator.comparing(Class::getDate)
-                        .thenComparing(Class::getId))
+                .sorted(Comparator.comparing(ClassDTO::date)
+                        .thenComparing(ClassDTO::id))
                 .toList();
     }
 

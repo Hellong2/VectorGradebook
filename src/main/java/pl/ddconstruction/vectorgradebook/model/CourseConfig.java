@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import pl.ddconstruction.vectorgradebook.dto.ClassDTO;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -17,7 +19,7 @@ import java.util.Set;
 public class CourseConfig {
     private String courseName;
     @Builder.Default
-    private List<Class> classes = new ArrayList<>();
+    private List<ClassDTO> classes = new ArrayList<>();
     @Builder.Default
     private Set<String> availableSkills = new HashSet<>();
 }
