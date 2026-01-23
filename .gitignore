@@ -35,3 +35,4 @@ build/
 
 ### Docker data ###
 /docker/qdrant_data
+/course_config.json
