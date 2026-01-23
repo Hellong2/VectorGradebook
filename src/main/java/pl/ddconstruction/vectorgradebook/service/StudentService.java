@@ -4,11 +4,16 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.ddconstruction.vectorgradebook.dto.ClassDTO;
-import pl.ddconstruction.vectorgradebook.model.entity.ClassEntity;
+import pl.ddconstruction.vectorgradebook.exception.StudentNotFoundException;
 import pl.ddconstruction.vectorgradebook.model.ClassType;
+import pl.ddconstruction.vectorgradebook.model.CourseConfig;
+import pl.ddconstruction.vectorgradebook.model.entity.ClassEntity;
 import pl.ddconstruction.vectorgradebook.model.entity.Course;
 import pl.ddconstruction.vectorgradebook.model.entity.Grade;
 import pl.ddconstruction.vectorgradebook.model.entity.Student;
+import pl.ddconstruction.vectorgradebook.repository.ClassRepository;
+import pl.ddconstruction.vectorgradebook.repository.CourseRepository;
+import pl.ddconstruction.vectorgradebook.repository.StudentRepository;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,10 +22,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class StudentService {
 
-    private final pl.ddconstruction.vectorgradebook.repository.StudentRepository studentRepository;
-    private final pl.ddconstruction.vectorgradebook.repository.GradeRepository gradeRepository;
-    private final pl.ddconstruction.vectorgradebook.repository.ClassRepository classRepository;
-    private final pl.ddconstruction.vectorgradebook.repository.CourseRepository courseRepository;
+    private final StudentRepository studentRepository;
+    private final ClassRepository classRepository;
+    private final CourseRepository courseRepository;
     private final VectorProcessingService vectorService;
     private final CourseService courseService;
 
@@ -37,7 +41,6 @@ public class StudentService {
 
     @Transactional
     public void save(Student student, UUID courseId) {
-        // 1. Fetch existing student if ID is present
         Student managedStudent;
         if (student.getId() != null) {
             managedStudent = studentRepository.findById(student.getId()).orElse(student);
@@ -45,10 +48,7 @@ public class StudentService {
             managedStudent = student;
         }
 
-        // 2. Update basic fields
         managedStudent.setName(student.getName());
-
-        // 3. Update Grades
         if (student.getClassGrades() != null) {
             java.util.Map<UUID, Double> desiredGrades = student.getClassGrades();
             desiredGrades.forEach((classId, value) -> {
@@ -72,24 +72,19 @@ public class StudentService {
             managedStudent.getGrades().removeIf(g -> !desiredGrades.containsKey(g.getClazz().getId()));
         }
 
-        // 4. Save Student
         Student saved = studentRepository.save(managedStudent);
-
-        // 5. Link to Course
         if (courseId != null) {
             Course course = courseRepository.findById(courseId)
                     .orElseThrow(() -> new RuntimeException("Course not found: " + courseId));
             saved.setCourse(course);
         }
 
-        // 5. Update Vector
         try {
             if (courseId != null) {
-                pl.ddconstruction.vectorgradebook.model.CourseConfig config = courseService.getCourseConfig(courseId);
+                CourseConfig config = courseService.getCourseConfig(courseId);
                 vectorService.updateStudentVector(saved, courseId, config);
             }
         } catch (Exception e) {
-            // Log warning
             System.err.println("Failed to update vector: " + e.getMessage());
         }
     }
@@ -109,7 +104,7 @@ public class StudentService {
     @Transactional(readOnly = true)
     public Student findById(UUID id) {
         Student student = studentRepository.findById(id)
-                .orElseThrow(() -> new pl.ddconstruction.vectorgradebook.exception.StudentNotFoundException(id));
+                .orElseThrow(() -> new StudentNotFoundException(id));
         populateTransientGrades(student);
         return student;
     }
@@ -122,11 +117,11 @@ public class StudentService {
     }
 
     public String getProblematicAreaStats(UUID courseId) {
-        pl.ddconstruction.vectorgradebook.model.CourseConfig config = courseService.getCourseConfig(courseId);
+        CourseConfig config = courseService.getCourseConfig(courseId);
         return vectorService.findProblematicAreas(courseId, config);
     }
 
-    public double calculateSubjectGrade(Student student, pl.ddconstruction.vectorgradebook.model.CourseConfig config) {
+    public double calculateSubjectGrade(Student student, CourseConfig config) {
         if (config == null)
             return 0.0;
 

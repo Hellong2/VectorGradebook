@@ -24,21 +24,15 @@ public class TeamFormationService {
         if (config == null)
             return Collections.emptyList();
 
-        // 1. Prepare Data
-        // Skills are now the dimensions
         List<String> sortedSkills = new ArrayList<>(config.getAvailableSkills());
         log.debug("Skills count: {}", sortedSkills.size());
 
-        // Pre-calculate vectors for all students
-        // Map<StudentID, float[]>
         Map<UUID, double[]> studentVectors = new HashMap<>();
 
         for (Student s : students) {
             studentVectors.put(s.getId(), calculateStudentVector(s, sortedSkills, config));
         }
 
-        // 2. Greedy Optimization
-        // Sort weakest first
         List<Student> sortedStudents = new ArrayList<>(students);
         sortedStudents.sort(Comparator.comparingDouble(s -> calculateAverage(s, studentVectors.get(s.getId()))));
 
@@ -49,7 +43,6 @@ public class TeamFormationService {
             if (assigned.contains(student.getId()))
                 continue;
 
-            // Find best partner
             double[] vecA = studentVectors.get(student.getId());
             Student partner = findBestPartner(student, vecA, sortedStudents, assigned, studentVectors);
 
@@ -60,7 +53,6 @@ public class TeamFormationService {
 
                 double[] currentTeamVec = calculateMaxVector(vecA, studentVectors.get(partner.getId()));
 
-                // If preferTrios, try to find a 3rd
                 if (preferTrios) {
                     Student third = findThirdPartner(teamMembers, currentTeamVec, sortedStudents, assigned,
                             studentVectors);
@@ -75,27 +67,15 @@ public class TeamFormationService {
 
                 double score = calculateSynergy(teamMembers, studentVectors);
                 teams.add(new TeamGeneratorView.Team(teamMembers, score));
-            } else {
-                // No partner found (unlikely unless singleton logic needed)
-                // For now, maybe stash as leftover or form singleton (bad score)
-                // We will handle leftovers at end if needed, but for now loop continues.
             }
         }
 
-        // Handle leftovers (merge into pairs if preferTrios was false originally or
-        // couldn't find 3rd)
-        // Or if simple pair finding left someone out.
-        // Current logic skips if no partner found.
         List<Student> leftovers = students.stream().filter(s -> !assigned.contains(s.getId())).toList();
         for (Student left : leftovers) {
-            // Try to add to existing team (max 3)
             boolean added = false;
             for (TeamGeneratorView.Team team : teams) {
                 if (team.getMembers().size() < 3) {
-                    // Check if synergy improves or at least stays > 3?
-                    // Just add to first available for now to ensure coverage
                     team.getMembers().add(left);
-                    // Recalculate score
                     team.setScore(calculateSynergy(team.getMembers(), studentVectors));
                     assigned.add(left.getId());
                     added = true;
@@ -103,13 +83,11 @@ public class TeamFormationService {
                 }
             }
             if (!added) {
-                // Create singleton team
                 teams.add(new TeamGeneratorView.Team(new ArrayList<>(List.of(left)),
                         calculateAverage(left, studentVectors.get(left.getId()))));
             }
         }
 
-        // 3. Sort by score descending
         teams.sort(Comparator.comparingDouble(TeamGeneratorView.Team::getScore).reversed());
 
         return teams;
@@ -120,24 +98,12 @@ public class TeamFormationService {
         Student bestPartner = null;
         double bestSynergy = -1.0;
 
-        // Gap vector: We want someone who is strong where A is weak.
-        // But the metric is Synergy = Mean(Max(A, B)).
-        // We simply maximize Synergy.
-
         for (Student other : pool) {
             if (other.getId().equals(candidate.getId()) || assigned.contains(other.getId()))
                 continue;
 
             double[] vecB = vectors.get(other.getId());
             double synergy = calculateSynergyOfVectors(vecA, vecB);
-
-            // Constraint: Avoid score below 3.0
-            if (synergy < 3.0) {
-                // If we have no better option, we might have to take it?
-                // Let's implement soft preference: only pick < 3.0 if no choice.
-                // Actually, bestSynergy starts at -1. So if all are < 3.0, we pick the highest
-                // < 3.0.
-            }
 
             if (synergy > bestSynergy) {
                 bestSynergy = synergy;
@@ -161,8 +127,6 @@ public class TeamFormationService {
             double[] newTeamVec = calculateMaxVector(teamVec, vecC);
             double newSynergy = calculateMean(newTeamVec);
 
-            // We want to improve synergy or at least keep it high?
-            // "avoid score below 3".
             if (newSynergy > currentSynergy || newSynergy > 3.0) {
                 if (newSynergy > bestNewSynergy) {
                     bestNewSynergy = newSynergy;
@@ -185,7 +149,7 @@ public class TeamFormationService {
     private double calculateStudentSkillAverage(Student student, String skill, CourseConfig config) {
         List<Double> grades = new ArrayList<>();
         config.getClasses().forEach(cls -> {
-            if (cls.skills().stream().anyMatch(s -> s.name().equals(skill))) { // Changed from getTags
+            if (cls.skills().stream().anyMatch(s -> s.name().equals(skill))) {
                 Double g = student.getClassGrades().get(cls.id());
                 if (g != null)
                     grades.add(g);
@@ -227,14 +191,13 @@ public class TeamFormationService {
 
     private double calculateAverage(Student s, double[] vector) {
         if (vector.length == 0)
-            return 3.0; // Default average
+            return 3.0;
         double sum = 0;
         for (double v : vector)
             sum += v;
         return sum / vector.length;
     }
 
-    // Mean of vector components
     private double calculateMean(double[] vector) {
         if (vector.length == 0)
             return 0;

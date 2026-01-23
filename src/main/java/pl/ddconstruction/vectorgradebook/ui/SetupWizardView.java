@@ -27,7 +27,6 @@ import pl.ddconstruction.vectorgradebook.dto.SkillDTO;
 import pl.ddconstruction.vectorgradebook.model.ClassType;
 import pl.ddconstruction.vectorgradebook.model.CourseConfig;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
-import pl.ddconstruction.vectorgradebook.service.CourseService;
 
 import java.io.InputStream;
 import java.util.ArrayList;

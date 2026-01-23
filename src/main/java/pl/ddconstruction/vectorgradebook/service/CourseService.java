@@ -1,7 +1,6 @@
 package pl.ddconstruction.vectorgradebook.service;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.ddconstruction.vectorgradebook.dto.ClassDTO;
@@ -31,19 +30,14 @@ public class CourseService {
     private final EntityMapper entityMapper;
     private final VectorProcessingService vectorService;
 
-    @Value("${app.course-config.path:course_config.json}")
-    private String configPath;
-
     @Transactional
     public UUID saveConfig(CourseConfig config) {
         Course course = new Course();
         course.setName(config.getCourseName());
 
-        // 1. Load or create Skills (must be managed entities)
         Set<Skill> courseSkills = loadOrCreateSkills(config.getAvailableSkills());
         course.setSkills(courseSkills);
 
-        // 3. Build Classes and set relationship
         Set<ClassEntity> newClasses = new HashSet<>();
         if (config.getClasses() != null) {
             for (ClassDTO clsDTO : config.getClasses()) {
@@ -52,22 +46,18 @@ public class CourseService {
                 cls.setDate(clsDTO.date());
                 cls.setType(clsDTO.type());
 
-                // Load Skills for this class
                 Set<Skill> classSkills = loadOrCreateSkills(
                         clsDTO.skills().stream().map(SkillDTO::name).collect(Collectors.toSet()));
                 cls.setSkills(classSkills);
 
-                // Set relation
                 cls.setCourse(course);
                 newClasses.add(cls);
             }
-            // Add to managed collection - CascadeType.ALL will handle persistence
             course.getClassEntities().addAll(newClasses);
         }
 
         Course savedCourse = courseRepository.save(course);
 
-        // Setup Qdrant collection
         if (config.getClasses() != null && !config.getClasses().isEmpty()) {
             vectorService.recreateCollection(savedCourse.getId(), config.getClasses().size());
         }
@@ -94,7 +84,6 @@ public class CourseService {
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new ConfigurationException("Course not found"));
 
-        // Map back to CourseConfig for UI compatibility
         CourseConfig config = new CourseConfig();
         config.setCourseName(course.getName());
         config.setAvailableSkills(course.getSkills().stream().map(Skill::getName).collect(Collectors.toSet()));
@@ -117,12 +106,12 @@ public class CourseService {
         exportConfig.setAvailableSkills(course.getSkills().stream().map(Skill::getName).collect(Collectors.toSet()));
 
         List<ClassDTO> cleanClasses = course.getClassEntities().stream().map(cls -> new ClassDTO(
-                null, // No ID for export
+                null,
                 cls.getTopic(),
                 cls.getDate(),
                 cls.getType(),
                 cls.getSkills().stream()
-                        .map(s -> new SkillDTO(null, s.getName())) // No ID for export
+                        .map(s -> new SkillDTO(null, s.getName()))
                         .collect(Collectors.toSet())))
                 .collect(Collectors.toList());
 

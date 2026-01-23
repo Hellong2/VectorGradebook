@@ -36,3 +36,12 @@ build/
 ### Docker data ###
 /docker/qdrant_data
 /course_config.json
+/src/main/frontend/generated/
+/src/main/frontend/generated/flow/generated-flow-imports.d.ts
+/src/main/frontend/generated/flow/generated-flow-imports.js
+/src/main/frontend/generated/flow/generated-flow-webcomponent-imports.js
+/src/main/frontend/generated/jar-resources/
+/src/main/frontend/generated/theme.d.ts
+/src/main/frontend/generated/theme.js
+/src/main/frontend/generated/vaadin.ts
+/src/main/frontend/generated/vaadin-featureflags.js

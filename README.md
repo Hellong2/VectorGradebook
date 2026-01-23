@@ -13,7 +13,7 @@ This application is a specialized tool for managing student grades and automatic
 
 ## Prerequisites
 
--   **Java 17** or higher
+-   **Java 25** or higher
 -   **Docker** (for running Qdrant)
 -   **Maven** (optional, wrapper included)
 
@@ -93,3 +93,35 @@ To make manual creation easy, you **do not** need to provide UUIDs for the class
 1.  **Gradebook**: After setup, you will see the main gradebook view. You can add students and grade them on the configured classes.
 2.  **Teams**: Navigate to the "Teams" tab to generate student pairs.
 3.  **Analytics**: View the "Weakest Area" stats in the Teams view to see where students are struggling.
+
+## 📄 License
+
+This project is available under a **dual license model**:
+
+### 🏠 Free for Personal Use
+
+This software is **free to use** for:
+- Personal projects
+- Educational purposes
+- Non-profit organizations
+- Evaluation and testing
+
+See the [LICENSE](LICENSE) file for complete non-commercial terms.
+
+### 💼 Commercial Use Requires License
+
+If you want to use this software in a **commercial environment**, including:
+- Within a business or company
+- To provide services to clients
+- As part of a commercial product
+- Any revenue-generating activity
+
+You need to obtain a **commercial license**.
+
+📧 **Contact for Commercial Licensing:**  
+Infoldium Dominik Domżalski  
+Email: domzalski.dominik@gmail.com
+
+---
+
+**Not sure which license you need?** Contact me at domzalski.dominik@gmail.com

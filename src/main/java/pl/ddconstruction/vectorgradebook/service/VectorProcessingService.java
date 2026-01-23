@@ -42,15 +42,12 @@ public class VectorProcessingService {
             throw new ConfigurationException("Course not configured");
         }
 
-        // Sort classes to ensure consistent vector dimension order
         List<ClassDTO> sortedClasses = getSortedClasses(config);
 
-        // Convert grades to float vector based on sorted classes
         List<Float> vector = sortedClasses.stream()
                 .map(cls -> student.getClassGrades().getOrDefault(cls.id(), 0.0).floatValue())
                 .toList();
 
-        // Convert grades map (UUID -> Double) to Qdrant payload (String -> Double)
         Map<String, Value> gradesPayload = new HashMap<>();
         student.getClassGrades().forEach((k, v) -> gradesPayload.put(k.toString(), ValueFactory.value(v)));
 
@@ -73,9 +70,7 @@ public class VectorProcessingService {
         String collectionName = getCollectionName(courseId);
         try {
             qdrantClient.deleteCollectionAsync(collectionName).get();
-            System.out.println("Collection '" + collectionName + "' deleted.");
         } catch (Exception e) {
-            System.out.println("Collection deletion skipped (likely didn't exist): " + e.getMessage());
         }
 
         try {
@@ -86,7 +81,6 @@ public class VectorProcessingService {
                             .setDistance(Distance.Cosine)
                             .build())
                     .get();
-            System.out.println("Collection '" + collectionName + "' created with dimension: " + dimension);
         } catch (Exception e) {
             throw new VectorStorageException("Failed to create collection",
                     e);
@@ -98,10 +92,6 @@ public class VectorProcessingService {
             try {
                 qdrantClient.deleteAsync(getCollectionName(courseId), List.of(id(id))).get();
             } catch (ExecutionException | InterruptedException e) {
-                // Log but continue? Or throw? prefer logging as one failure shouldn't block
-                // others
-                System.err
-                        .println("Failed to delete student " + id + " from course " + courseId + ": " + e.getMessage());
             }
         }
     }
@@ -193,7 +183,6 @@ public class VectorProcessingService {
     }
 
     private List<ClassDTO> getSortedClasses(CourseConfig config) {
-        // Sort by Date, then ID to ensure deterministic order
         return config.getClasses().stream()
                 .sorted(Comparator.comparing(ClassDTO::date)
                         .thenComparing(ClassDTO::id))
