@@ -5,8 +5,9 @@ import com.vaadin.flow.component.applayout.DrawerToggle;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dialog.Dialog;
-import com.vaadin.flow.component.html.Div;
+
 import com.vaadin.flow.component.html.H1;
+import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.Icon;
 import com.vaadin.flow.component.icon.VaadinIcon;
@@ -14,66 +15,101 @@ import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.Scroller;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.router.RouterLink;
+import com.vaadin.flow.component.sidenav.SideNav;
+import com.vaadin.flow.component.sidenav.SideNavItem;
+import com.vaadin.flow.router.PageTitle;
+import com.vaadin.flow.theme.lumo.LumoUtility;
 import pl.ddconstruction.vectorgradebook.service.CourseService;
 
 public class MainLayout extends AppLayout {
 
     private final CourseService courseService;
+    private H2 viewTitle;
 
     public MainLayout(CourseService courseService) {
         this.courseService = courseService;
-        createHeader();
-        createDrawer();
+
+        setPrimarySection(Section.DRAWER);
+        addDrawerContent();
+        addHeaderContent();
     }
 
-    private void createHeader() {
-        H1 logo = new H1("Dziennik Ocen Wektorowych");
-        logo.addClassNames("text-l", "m-m");
+    private void addHeaderContent() {
+        DrawerToggle toggle = new DrawerToggle();
+        toggle.setAriaLabel("Menu toggle");
 
-        HorizontalLayout header = new HorizontalLayout(new DrawerToggle(), logo);
+        viewTitle = new H2();
+        viewTitle.addClassNames(LumoUtility.FontSize.LARGE, LumoUtility.Margin.NONE);
+
+        HorizontalLayout header = new HorizontalLayout(toggle, viewTitle);
 
         if (courseService.isConfigured() && courseService.getCurrentConfig() != null) {
             String courseName = courseService.getCurrentConfig().getCourseName();
             if (courseName != null && !courseName.isEmpty()) {
-                Span courseNameSpan = new Span(courseName);
-                courseNameSpan.getStyle().set("margin-left", "auto");
-                courseNameSpan.getStyle().set("margin-right", "1em");
-                courseNameSpan.getStyle().set("font-weight", "bold");
-                header.add(courseNameSpan);
+                Span courseBadge = new Span(courseName);
+                courseBadge.getElement().getThemeList().add("badge contrast");
+                courseBadge.addClassNames(LumoUtility.Margin.Start.AUTO, LumoUtility.Margin.End.MEDIUM);
+                header.add(courseBadge);
             }
         }
 
         header.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
-        header.setWidth("100%");
-        header.addClassNames("py-0", "px-m");
+        header.setWidthFull();
+        header.addClassNames(LumoUtility.Padding.Vertical.NONE, LumoUtility.Padding.Horizontal.MEDIUM);
 
-        addToNavbar(header);
+        addToNavbar(true, header);
     }
 
-    private void createDrawer() {
-        VerticalLayout list = new VerticalLayout();
-        list.setHeightFull(); // Allow list to take full height for positioning
+    private void addDrawerContent() {
+        H1 appName = new H1("V-Grade");
+        appName.addClassNames(LumoUtility.FontSize.LARGE, LumoUtility.Margin.NONE);
+
+        com.vaadin.flow.component.html.Header header = new com.vaadin.flow.component.html.Header(appName);
+        header.addClassNames(LumoUtility.Padding.MEDIUM, LumoUtility.Display.FLEX, LumoUtility.AlignItems.CENTER,
+                LumoUtility.JustifyContent.CENTER);
+
+        Scroller scroller = new Scroller(createNavigation());
+        scroller.addClassNames(LumoUtility.Padding.SMALL);
+
+        addToDrawer(header, scroller, createFooter());
+    }
+
+    private SideNav createNavigation() {
+        SideNav nav = new SideNav();
 
         if (courseService.isConfigured()) {
-            list.add(new RouterLink("Dziennik Ocen", GradeBookView.class));
-            list.add(new RouterLink("Generator Zespołów", TeamGeneratorView.class));
+            nav.addItem(new SideNavItem("Dziennik Ocen", GradeBookView.class, VaadinIcon.TABLE.create()));
+            nav.addItem(new SideNavItem("Generator Zespołów", TeamGeneratorView.class, VaadinIcon.USERS.create()));
+        } else {
+            nav.addItem(new SideNavItem("Konfiguracja", SetupWizardView.class, VaadinIcon.COG.create()));
         }
 
-        // Spacer to push the reset button to the bottom
-        Div spacer = new Div();
-        list.add(spacer);
-        list.setFlexGrow(1, spacer);
+        return nav;
+    }
 
-        // Reset configuration button with confirmation
-        Button resetBtn = new Button("Konfiguracja (Reset)", new Icon(VaadinIcon.COG));
-        resetBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_ERROR);
-        resetBtn.setWidthFull();
-        resetBtn.addClickListener(e -> showResetConfirmation());
+    private com.vaadin.flow.component.html.Footer createFooter() {
+        com.vaadin.flow.component.html.Footer layout = new com.vaadin.flow.component.html.Footer();
+        layout.addClassNames(LumoUtility.Padding.MEDIUM);
 
-        list.add(resetBtn);
+        if (courseService.isConfigured()) {
+            Button resetBtn = new Button("Resetuj Dane", new Icon(VaadinIcon.TRASH), e -> showResetConfirmation());
+            resetBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_ERROR);
+            resetBtn.setWidthFull();
+            layout.add(resetBtn);
+        }
 
-        addToDrawer(new Scroller(list));
+        return layout;
+    }
+
+    @Override
+    protected void afterNavigation() {
+        super.afterNavigation();
+        viewTitle.setText(getCurrentPageTitle());
+    }
+
+    private String getCurrentPageTitle() {
+        PageTitle title = getContent().getClass().getAnnotation(PageTitle.class);
+        return title == null ? "" : title.value();
     }
 
     private void showResetConfirmation() {
