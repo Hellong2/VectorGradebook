@@ -1,5 +1,6 @@
 package pl.ddconstruction.vectorgradebook.service;
 
+import jdk.incubator.vector.VectorOperators;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import jdk.incubator.vector.FloatVector;
@@ -189,7 +190,7 @@ public class TeamFormationService {
             }
 
             // Add reduced sum of this chunk
-            sumMaxGrades += maxVec.reduceLanes(jdk.incubator.vector.VectorOperators.ADD);
+            sumMaxGrades += maxVec.reduceLanes(VectorOperators.ADD);
         }
 
         // Post-loop for remaining elements
