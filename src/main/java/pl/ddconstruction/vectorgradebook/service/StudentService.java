@@ -16,7 +16,10 @@ import pl.ddconstruction.vectorgradebook.repository.CourseRepository;
 import pl.ddconstruction.vectorgradebook.repository.StudentRepository;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -35,7 +38,14 @@ public class StudentService {
         }
 
         List<Student> students = studentRepository.findByCourseId(courseId);
-        students.forEach(this::populateTransientGrades);
+        CourseConfig config = courseService.getCourseConfig(courseId);
+        Set<UUID> classIds = config.getClasses().stream()
+                .map(ClassDTO::id)
+                .collect(Collectors.toSet());
+        students.forEach(student -> {
+            populateTransientGrades(student);
+            mergeMissingGradesFromVectorStore(student, courseId, classIds);
+        });
         return students;
     }
 
@@ -116,6 +126,39 @@ public class StudentService {
         }
     }
 
+    private void mergeMissingGradesFromVectorStore(Student student, UUID courseId, Set<UUID> classIds) {
+        if (classIds.isEmpty()) {
+            return;
+        }
+
+        Map<UUID, Double> currentGrades = student.getClassGrades();
+        if (currentGrades == null) {
+            return;
+        }
+
+        Set<UUID> missing = new java.util.HashSet<>(classIds);
+        missing.removeAll(currentGrades.keySet());
+        if (missing.isEmpty()) {
+            return;
+        }
+
+        try {
+            Student vectorStudent = vectorService.getStudentById(student.getId(), courseId);
+            Map<UUID, Double> vectorGrades = vectorStudent.getClassGrades();
+            if (vectorGrades == null || vectorGrades.isEmpty()) {
+                return;
+            }
+            missing.forEach(id -> {
+                Double value = vectorGrades.get(id);
+                if (value != null) {
+                    currentGrades.put(id, value);
+                }
+            });
+        } catch (Exception e) {
+            // Ignore vector store issues and rely on SQL data.
+        }
+    }
+
     public String getProblematicAreaStats(UUID courseId) {
         CourseConfig config = courseService.getCourseConfig(courseId);
         return vectorService.findProblematicAreas(courseId, config);
@@ -150,9 +193,21 @@ public class StudentService {
         if (classes.isEmpty())
             return 0.0;
 
-        double sum = classes.stream()
-                .mapToDouble(c -> student.getClassGrades().getOrDefault(c.id(), 0.0))
-                .sum();
-        return sum / classes.size();
+        Map<UUID, Double> grades = student.getClassGrades();
+        if (grades == null || grades.isEmpty()) {
+            return 0.0;
+        }
+
+        double sum = 0.0;
+        int count = 0;
+        for (ClassDTO cls : classes) {
+            Double value = grades.get(cls.id());
+            if (value != null) {
+                sum += value;
+                count++;
+            }
+        }
+
+        return count == 0 ? 0.0 : sum / count;
     }
 }

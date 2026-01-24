@@ -21,12 +21,10 @@ This application is a specialized tool for managing student grades and automatic
 
 ### 1. Start Qdrant
 
-The application requires a running Qdrant instance. You can start it using Docker:
+The application requires a running Qdrant instance. You can start it using Docker Compose:
 
 ```bash
-docker run -p 6333:6333 -p 6334:6334 \
-    -v $(pwd)/qdrant_storage:/qdrant/storage \
-    qdrant/qdrant
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 ### 2. Run the Application
@@ -34,10 +32,10 @@ docker run -p 6333:6333 -p 6334:6334 \
 You can run the application directly using the Maven wrapper:
 
 ```bash
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.jvmArguments="--add-modules=jdk.incubator.vector"
 ```
 
-Once started, open your browser and navigate to: `http://localhost:8080`
+Once started, open your browser and navigate to: `http://localhost:8081`
 
 ## Initial Setup & Configuration
 
