@@ -144,7 +144,7 @@ public class StudentService {
 
         try {
             Set<UUID> existingGradeClassIds = extractClassIds(student.getGrades());
-            Map<UUID, ClassEntity> classById = classRepository.findAllById(missing).stream()
+            Map<UUID, ClassEntity> classById = classRepository.findAllById(classIds).stream()
                     .collect(Collectors.toMap(ClassEntity::getId, cls -> cls));
             Student vectorStudent = vectorService.getStudentById(student.getId(), courseId);
             Map<UUID, Double> vectorGrades = vectorStudent.getClassGrades();
