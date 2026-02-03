@@ -165,7 +165,6 @@ public class StudentService {
                                     .value(value)
                                     .build();
                             student.getGrades().add(grade);
-                            existingGradeClassIds.add(id);
                         });
                     }
                 }
