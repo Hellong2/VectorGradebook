@@ -42,9 +42,13 @@ public class StudentService {
         Set<UUID> classIds = config.getClasses().stream()
                 .map(ClassDTO::id)
                 .collect(Collectors.toSet());
+        Map<UUID, ClassEntity> classById = classIds.isEmpty()
+                ? Map.of()
+                : classRepository.findAllById(classIds).stream()
+                        .collect(Collectors.toMap(ClassEntity::getId, cls -> cls));
         students.forEach(student -> {
             populateTransientGrades(student);
-            mergeMissingGradesFromVectorStore(student, courseId, classIds);
+            mergeMissingGradesFromVectorStore(student, courseId, classIds, classById);
         });
         return students;
     }
@@ -126,7 +130,8 @@ public class StudentService {
         }
     }
 
-    private void mergeMissingGradesFromVectorStore(Student student, UUID courseId, Set<UUID> classIds) {
+    private void mergeMissingGradesFromVectorStore(Student student, UUID courseId, Set<UUID> classIds,
+                                                   Map<UUID, ClassEntity> classById) {
         if (classIds.isEmpty()) {
             return;
         }
@@ -144,8 +149,6 @@ public class StudentService {
 
         try {
             Set<UUID> existingGradeClassIds = extractClassIds(student.getGrades());
-            Map<UUID, ClassEntity> classById = classRepository.findAllById(classIds).stream()
-                    .collect(Collectors.toMap(ClassEntity::getId, cls -> cls));
             Student vectorStudent = vectorService.getStudentById(student.getId(), courseId);
             Map<UUID, Double> vectorGrades = vectorStudent.getClassGrades();
             if (vectorGrades == null || vectorGrades.isEmpty()) {
