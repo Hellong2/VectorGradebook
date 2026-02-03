@@ -152,14 +152,18 @@ public class StudentService {
                 Double value = vectorGrades.get(id);
                 if (value != null) {
                     currentGrades.put(id, value);
-                    classRepository.findById(id).ifPresent(cls -> {
-                        Grade grade = Grade.builder()
-                                .student(student)
-                                .clazz(cls)
-                                .value(value)
-                                .build();
-                        student.getGrades().add(grade);
-                    });
+                    boolean gradeExists = student.getGrades().stream()
+                            .anyMatch(grade -> grade.getClazz() != null && grade.getClazz().getId().equals(id));
+                    if (!gradeExists) {
+                        classRepository.findById(id).ifPresent(cls -> {
+                            Grade grade = Grade.builder()
+                                    .student(student)
+                                    .clazz(cls)
+                                    .value(value)
+                                    .build();
+                            student.getGrades().add(grade);
+                        });
+                    }
                 }
             });
         } catch (Exception e) {
