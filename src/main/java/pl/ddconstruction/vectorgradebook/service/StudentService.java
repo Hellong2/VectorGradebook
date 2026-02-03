@@ -142,10 +142,7 @@ public class StudentService {
             return;
         }
 
-        Set<UUID> existingGradeClassIds = student.getGrades().stream()
-                .filter(grade -> grade.getClazz() != null)
-                .map(grade -> grade.getClazz().getId())
-                .collect(Collectors.toSet());
+        Set<UUID> existingGradeClassIds = extractClassIds(student.getGrades());
         Map<UUID, ClassEntity> classById = classRepository.findAllById(missing).stream()
                 .collect(Collectors.toMap(ClassEntity::getId, cls -> cls));
 
@@ -175,6 +172,13 @@ public class StudentService {
         } catch (Exception e) {
             // Ignore vector store issues and rely on SQL data.
         }
+    }
+
+    private Set<UUID> extractClassIds(Set<Grade> grades) {
+        return grades.stream()
+                .filter(grade -> grade.getClazz() != null)
+                .map(grade -> grade.getClazz().getId())
+                .collect(Collectors.toSet());
     }
 
     public String getProblematicAreaStats(UUID courseId) {
