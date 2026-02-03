@@ -31,7 +31,7 @@ public class StudentService {
     private final VectorProcessingService vectorService;
     private final CourseService courseService;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<Student> findAllByCourseId(UUID courseId) {
         if (courseId == null) {
             return List.of();
@@ -152,6 +152,14 @@ public class StudentService {
                 Double value = vectorGrades.get(id);
                 if (value != null) {
                     currentGrades.put(id, value);
+                    classRepository.findById(id).ifPresent(cls -> {
+                        Grade grade = Grade.builder()
+                                .student(student)
+                                .clazz(cls)
+                                .value(value)
+                                .build();
+                        student.getGrades().add(grade);
+                    });
                 }
             });
         } catch (Exception e) {
