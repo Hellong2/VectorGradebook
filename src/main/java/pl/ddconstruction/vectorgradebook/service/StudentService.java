@@ -142,6 +142,11 @@ public class StudentService {
             return;
         }
 
+        Set<UUID> existingGradeClassIds = student.getGrades().stream()
+                .filter(grade -> grade.getClazz() != null)
+                .map(grade -> grade.getClazz().getId())
+                .collect(Collectors.toSet());
+
         try {
             Student vectorStudent = vectorService.getStudentById(student.getId(), courseId);
             Map<UUID, Double> vectorGrades = vectorStudent.getClassGrades();
@@ -152,9 +157,7 @@ public class StudentService {
                 Double value = vectorGrades.get(id);
                 if (value != null) {
                     currentGrades.put(id, value);
-                    boolean gradeExists = student.getGrades().stream()
-                            .anyMatch(grade -> grade.getClazz() != null && grade.getClazz().getId().equals(id));
-                    if (!gradeExists) {
+                    if (!existingGradeClassIds.contains(id)) {
                         classRepository.findById(id).ifPresent(cls -> {
                             Grade grade = Grade.builder()
                                     .student(student)
@@ -162,6 +165,7 @@ public class StudentService {
                                     .value(value)
                                     .build();
                             student.getGrades().add(grade);
+                            existingGradeClassIds.add(id);
                         });
                     }
                 }
